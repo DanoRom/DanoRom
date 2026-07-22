@@ -1,0 +1,24 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local data
+*.db
+backend/storage/
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
