@@ -26,8 +26,12 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # optionally add GEMINI_API_KEY / DATABASE_URL
-uvicorn app.main:app --reload
+python dev.py
 ```
+
+`dev.py` runs uvicorn with auto-reload but excludes the `storage/` directory, so
+project uploads don't restart the server. (Equivalent to
+`uvicorn app.main:app --reload --reload-exclude "storage/*"`.)
 
 API at http://localhost:8000 (docs at `/docs`).
 
