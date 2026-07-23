@@ -16,7 +16,7 @@ class Project(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    source_type: Mapped[str] = mapped_column(String(20), default="template")  # template | upload
+    source_type: Mapped[str] = mapped_column(String(20), default="template")  # template | upload | github
     template: Mapped[str] = mapped_column(String(50), default="")
     root_path: Mapped[str] = mapped_column(String(500), default="")
     stage: Mapped[str] = mapped_column(String(50), default="unevaluated")
@@ -39,6 +39,8 @@ class Evaluation(Base):
     engine: Mapped[str] = mapped_column(String(20), default="heuristic")  # gemini | heuristic
     chosen_branch: Mapped[int] = mapped_column(Integer, default=-1)  # -1 = none chosen yet
     completed_steps_json: Mapped[str] = mapped_column(Text, default="[]")
+    signals_json: Mapped[str] = mapped_column(Text, default="{}")  # scanner signals snapshot, for diffing
+    changes_json: Mapped[str] = mapped_column(Text, default="[]")  # human-readable diff vs previous evaluation
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="evaluations")

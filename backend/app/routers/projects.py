@@ -1,8 +1,10 @@
 import json
+import re
 import shutil
 import zipfile
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from ..schemas import (
     EvaluationOut,
     ProjectCreate,
     ProjectDetail,
+    ProjectImport,
     ProjectOut,
     StepUpdate,
 )
@@ -23,6 +26,22 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 200 * 1024 * 1024
+
+GITHUB_URL_RE = re.compile(
+    r"^https://github\.com/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+?)(?:\.git)?"
+    r"(?:/tree/(?P<branch>[\w./-]+?))?/?$"
+)
+
+# Maps scanner boolean signals to the human-readable labels used in diff output.
+BOOLEAN_SIGNAL_LABELS = {
+    "has_readme": "readme",
+    "has_tests": "tests",
+    "has_ci": "CI",
+    "has_docker": "Docker",
+    "has_lockfile": "lockfile",
+    "has_env_example": "env example",
+    "has_license": "license",
+}
 
 
 def _project_dir(project_id: int) -> Path:
@@ -42,6 +61,7 @@ def _evaluation_out(evaluation: Evaluation | None) -> EvaluationOut | None:
         branches=json.loads(evaluation.branches_json or "[]"),
         chosen_branch=evaluation.chosen_branch,
         completed_steps=json.loads(evaluation.completed_steps_json or "[]"),
+        changes=json.loads(evaluation.changes_json or "[]"),
     )
 
 
@@ -142,6 +162,95 @@ def _safe_extract(archive_path: Path, dest: Path) -> None:
         archive.extractall(dest)
 
 
+def parse_github_url(url: str) -> tuple[str, str, str | None]:
+    """Parses a GitHub repo URL into (owner, repo, branch).
+
+    Tolerates a trailing "/", a ".git" suffix, and a "/tree/{branch}" suffix
+    (branch names may contain "/", e.g. "feature/foo"). Raises ValueError for
+    anything else.
+    """
+    match = GITHUB_URL_RE.match(url.strip())
+    if not match:
+        raise ValueError("Not a valid GitHub repository URL")
+    return match.group("owner"), match.group("repo"), match.group("branch")
+
+
+def _strip_github_wrapper(incoming: Path) -> None:
+    """GitHub zip archives wrap the tree in a single '{repo}-{sha}/' folder — unwrap it."""
+    entries = list(incoming.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        inner = entries[0]
+        for item in inner.iterdir():
+            shutil.move(str(item), str(incoming / item.name))
+        inner.rmdir()
+
+
+@router.post("/import", response_model=ProjectOut, status_code=201)
+async def import_project(payload: ProjectImport, db: Session = Depends(get_db)):
+    """Imports a public GitHub repo by URL, mirroring the .zip upload flow."""
+    try:
+        owner, repo, branch = parse_github_url(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    if branch:
+        download_url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
+    else:
+        download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
+
+    project = Project(name=payload.name.strip() or repo, source_type="github")
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    incoming = settings.storage_dir / f"project-{project.id}-incoming"
+    shutil.rmtree(incoming, ignore_errors=True)
+    incoming.mkdir(parents=True)
+    archive_path = incoming.with_suffix(".zip")
+
+    try:
+        size = 0
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                async with client.stream("GET", download_url) as response:
+                    if response.status_code != 200:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Could not find {owner}/{repo} on GitHub (status {response.status_code})",
+                        )
+                    with archive_path.open("wb") as out:
+                        async for chunk in response.aiter_bytes(1024 * 1024):
+                            size += len(chunk)
+                            if size > MAX_UPLOAD_BYTES:
+                                raise HTTPException(status_code=413, detail="Archive exceeds 50 MB limit")
+                            out.write(chunk)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=404, detail=f"Could not reach GitHub: {exc}")
+        _safe_extract(archive_path, incoming)
+    except (zipfile.BadZipFile, ValueError) as exc:
+        shutil.rmtree(incoming, ignore_errors=True)
+        db.delete(project)
+        db.commit()
+        raise HTTPException(status_code=422, detail=f"Invalid archive: {exc}")
+    except HTTPException:
+        shutil.rmtree(incoming, ignore_errors=True)
+        db.delete(project)
+        db.commit()
+        raise
+    finally:
+        archive_path.unlink(missing_ok=True)
+
+    _strip_github_wrapper(incoming)
+
+    dest = _project_dir(project.id)
+    shutil.rmtree(dest, ignore_errors=True)
+    incoming.rename(dest)
+    project.root_path = str(dest)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 @router.post("/{project_id}/reupload", response_model=ProjectOut)
 async def reupload_project(project_id: int, file: UploadFile, db: Session = Depends(get_db)):
     """Replaces a project's files with a new archive so re-evaluation reflects real progress."""
@@ -207,6 +316,10 @@ def evaluate_project(project_id: int, db: Session = Depends(get_db)):
     scan = scanner.scan_project(project.root_path)
     result = gemini.evaluate(scan)
 
+    previous = project.evaluations[0] if project.evaluations else None
+    previous_signals = json.loads(previous.signals_json or "{}") if previous else None
+    changes = _diff_signals(previous_signals, scan["signals"])
+
     evaluation = Evaluation(
         project_id=project.id,
         stage=result["stage"],
@@ -214,12 +327,40 @@ def evaluate_project(project_id: int, db: Session = Depends(get_db)):
         summary=result["summary"],
         branches_json=json.dumps(result["branches"]),
         engine=result["engine"],
+        signals_json=json.dumps(scan["signals"]),
+        changes_json=json.dumps(changes),
     )
     project.stage = result["stage"]
     db.add(evaluation)
     db.commit()
     db.refresh(evaluation)
     return _evaluation_out(evaluation)
+
+
+def _diff_signals(previous: dict | None, current: dict) -> list[str]:
+    """Compares two scanner signal dicts into a human-readable list of changes."""
+    if previous is None:
+        return []
+    changes: list[str] = []
+
+    for key, label in BOOLEAN_SIGNAL_LABELS.items():
+        before = bool(previous.get(key))
+        after = bool(current.get(key))
+        if before != after:
+            changes.append(f"+ {label} detected" if after else f"- {label} removed")
+
+    file_delta = current.get("file_count", 0) - previous.get("file_count", 0)
+    if file_delta:
+        changes.append(f"{file_delta:+d} files")
+
+    before_langs = set(previous.get("languages", []))
+    after_langs = set(current.get("languages", []))
+    for lang in sorted(after_langs - before_langs):
+        changes.append(f"+{lang}")
+    for lang in sorted(before_langs - after_langs):
+        changes.append(f"-{lang}")
+
+    return changes
 
 
 @router.post("/{project_id}/pathway", response_model=EvaluationOut)

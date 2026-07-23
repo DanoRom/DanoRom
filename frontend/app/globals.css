@@ -184,6 +184,24 @@ label {
   background: var(--ferrari-red);
 }
 
+/* ---------- Change chips ---------- */
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.chip {
+  display: inline-block;
+  background: rgba(25, 25, 112, 0.6);
+  border: 1px solid var(--oak-brown);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
 /* ---------- Pathways ---------- */
 .pathways {
   display: grid;

@@ -33,6 +33,7 @@ export interface Evaluation {
   branches: PathwayBranch[];
   chosen_branch: number;
   completed_steps: number[];
+  changes: string[];
 }
 
 export interface ProjectDetail extends Project {
@@ -72,6 +73,13 @@ export const api = {
       body: form,
     }).then((r) => handle<Project>(r));
   },
+
+  importProject: (url: string, name: string) =>
+    fetch(`${API_BASE}/api/projects/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, name }),
+    }).then((r) => handle<Project>(r)),
 
   getProject: (id: string | number) =>
     fetch(`${API_BASE}/api/projects/${id}`).then((r) => handle<ProjectDetail>(r)),

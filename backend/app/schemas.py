@@ -9,6 +9,11 @@ class ProjectCreate(BaseModel):
     template: str = "blank"  # blank | nextjs-app | fastapi-api | fullstack
 
 
+class ProjectImport(BaseModel):
+    url: str
+    name: str = ""
+
+
 class PathwayStep(BaseModel):
     title: str
     detail: str = ""
@@ -33,6 +38,7 @@ class EvaluationOut(BaseModel):
     branches: list[PathwayBranch] = []
     chosen_branch: int = -1
     completed_steps: list[int] = []
+    changes: list[str] = []
 
 
 class ChooseBranch(BaseModel):

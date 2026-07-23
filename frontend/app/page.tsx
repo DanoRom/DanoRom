@@ -122,11 +122,31 @@ function StartProjectCard({ onCreated }: { onCreated: () => void }) {
 
 function AddProjectCard({ onCreated }: { onCreated: () => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const [githubUrl, setGithubUrl] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const submit = async () => {
+  const submitImport = async () => {
+    if (!githubUrl.trim()) {
+      setError("Paste a GitHub repository URL.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api.importProject(githubUrl, name);
+      setGithubUrl("");
+      setName("");
+      onCreated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitUpload = async () => {
     if (!file) {
       setError("Choose a .zip archive of your project.");
       return;
@@ -148,16 +168,32 @@ function AddProjectCard({ onCreated }: { onCreated: () => void }) {
   return (
     <div className="card blue">
       <h2>Add Project</h2>
-      <p>Upload an existing file tree or repo as a .zip archive.</p>
+      <p>Import a GitHub repo by URL, or upload an existing file tree as a .zip archive.</p>
       <label>Project name (optional)</label>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="existing-app" />
+
+      <label>GitHub URL</label>
+      <input
+        value={githubUrl}
+        onChange={(e) => setGithubUrl(e.target.value)}
+        placeholder="https://github.com/owner/repo"
+      />
+      <button
+        className="cta"
+        onClick={submitImport}
+        disabled={busy}
+        style={{ marginBottom: "1.25rem" }}
+      >
+        {busy ? "Importing…" : "Import from GitHub"}
+      </button>
+
       <label>Archive</label>
       <input
         type="file"
         accept=".zip"
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
       />
-      <button className="cta" onClick={submit} disabled={busy}>
+      <button className="cta" onClick={submitUpload} disabled={busy}>
         {busy ? "Uploading…" : "Add Project"}
       </button>
       {error && <p className="error">{error}</p>}

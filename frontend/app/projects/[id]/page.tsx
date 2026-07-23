@@ -138,10 +138,40 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
               <strong>{evaluation.stage}</strong> · {evaluation.confidence}% confidence ·
               engine: {evaluation.engine}
             </p>
-            <p style={{ marginBottom: 0 }}>{evaluation.summary}</p>
+            <p style={{ marginBottom: evaluation.changes.length ? "0.75rem" : 0 }}>
+              {evaluation.summary}
+            </p>
+            {evaluation.changes.length > 0 && (
+              <div>
+                <div className="muted" style={{ fontSize: "0.8rem", marginBottom: "0.2rem" }}>
+                  What changed since last evaluation
+                </div>
+                <div className="chips-row">
+                  {evaluation.changes.map((change, i) => (
+                    <span key={i} className="chip">{change}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <h2 style={{ marginTop: "2rem" }}>Branching pathways</h2>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              marginTop: "2rem",
+            }}
+          >
+            <h2>Branching pathways</h2>
+            {evaluation.branches.length > 0 && (
+              <button className="ghost" onClick={() => downloadChecklist(project, evaluation)}>
+                Export checklist (.md)
+              </button>
+            )}
+          </div>
           <p className="muted">
             {evaluation.chosen_branch < 0
               ? "Pick a path — it becomes your active checklist."
@@ -256,4 +286,40 @@ function PathProgress({
       )}
     </div>
   );
+}
+
+function buildChecklistMarkdown(project: ProjectDetail, evaluation: Evaluation): string {
+  const lines: string[] = [
+    `# ${project.name}`,
+    "",
+    `**Stage:** ${evaluation.stage}`,
+    "",
+    evaluation.summary,
+  ];
+
+  evaluation.branches.forEach((branch, i) => {
+    lines.push("", `## ${branch.title} (${branch.priority})`);
+    if (branch.description) lines.push("", branch.description);
+    branch.steps.forEach((step, j) => {
+      const done = evaluation.chosen_branch === i && evaluation.completed_steps.includes(j);
+      const box = done ? "[x]" : "[ ]";
+      const detail = step.detail ? ` — ${step.detail}` : "";
+      lines.push(`- ${box} ${step.title}${detail}`);
+    });
+  });
+
+  return lines.join("\n") + "\n";
+}
+
+function downloadChecklist(project: ProjectDetail, evaluation: Evaluation) {
+  const markdown = buildChecklistMarkdown(project, evaluation);
+  const blob = new Blob([markdown], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${project.name.trim().toLowerCase().replace(/\s+/g, "-")}-pathway.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

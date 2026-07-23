@@ -15,6 +15,8 @@ def _migrate() -> None:
     additions = {
         "chosen_branch": "INTEGER DEFAULT -1",
         "completed_steps_json": "TEXT DEFAULT '[]'",
+        "signals_json": "TEXT DEFAULT '{}'",
+        "changes_json": "TEXT DEFAULT '[]'",
     }
     with engine.begin() as conn:
         for name, ddl in additions.items():
