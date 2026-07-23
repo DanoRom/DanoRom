@@ -40,6 +40,63 @@ export interface ProjectDetail extends Project {
   latest_evaluation: Evaluation | null;
 }
 
+export interface ScanSignals {
+  has_readme: boolean;
+  has_tests: boolean;
+  has_ci: boolean;
+  has_docker: boolean;
+  has_lockfile: boolean;
+  has_env_example: boolean;
+  has_license: boolean;
+  dependency_files: string[];
+  dependencies: string[];
+  languages: string[];
+  file_count: number;
+}
+
+export interface ProjectTree {
+  tree: string;
+  signals: ScanSignals;
+}
+
+export interface Stats {
+  total_projects: number;
+  total_evaluations: number;
+  steps_completed: number;
+  stage_counts: Record<string, number>;
+  gemini_evaluations: number;
+}
+
+export interface LearningContent {
+  stage: string;
+  markdown: string;
+  stacks: string[];
+}
+
+export interface QuizQuestion {
+  q: string;
+  options: string[];
+}
+
+export interface QuizOut {
+  stage: string;
+  questions: QuizQuestion[];
+}
+
+export interface QuizReviewItem {
+  q: string;
+  correct: number;
+  your: number;
+  why: string;
+}
+
+export interface QuizResult {
+  score: number;
+  total: number;
+  passed: boolean;
+  review: QuizReviewItem[];
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText;
@@ -112,8 +169,28 @@ export const api = {
       body: JSON.stringify({ step_index: stepIndex, done }),
     }).then((r) => handle<Evaluation>(r)),
 
-  getLearning: (stage: string) =>
-    fetch(`${API_BASE}/api/learning/${stage}`).then((r) =>
-      handle<{ stage: string; markdown: string }>(r)
+  getLearning: (stage: string, stack?: string) =>
+    fetch(
+      `${API_BASE}/api/learning/${stage}${stack ? `?stack=${encodeURIComponent(stack)}` : ""}`
+    ).then((r) => handle<LearningContent>(r)),
+
+  listEvaluations: (id: string | number) =>
+    fetch(`${API_BASE}/api/projects/${id}/evaluations`).then((r) =>
+      handle<Evaluation[]>(r)
     ),
+
+  getProjectTree: (id: string | number) =>
+    fetch(`${API_BASE}/api/projects/${id}/tree`).then((r) => handle<ProjectTree>(r)),
+
+  getStats: () => fetch(`${API_BASE}/api/stats`).then((r) => handle<Stats>(r)),
+
+  getQuiz: (stage: string) =>
+    fetch(`${API_BASE}/api/learning/${stage}/quiz`).then((r) => handle<QuizOut>(r)),
+
+  submitQuiz: (stage: string, answers: number[]) =>
+    fetch(`${API_BASE}/api/learning/${stage}/quiz`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    }).then((r) => handle<QuizResult>(r)),
 };

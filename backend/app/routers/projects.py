@@ -305,6 +305,26 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
     return detail
 
 
+@router.get("/{project_id}/evaluations", response_model=list[EvaluationOut])
+def list_evaluations(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return [_evaluation_out(evaluation) for evaluation in project.evaluations]
+
+
+@router.get("/{project_id}/tree")
+def get_project_tree(project_id: int, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.root_path or not Path(project.root_path).is_dir():
+        raise HTTPException(status_code=409, detail="Project has no files to scan")
+
+    scan = scanner.scan_project(project.root_path)
+    return {"tree": scan["tree"], "signals": scan["signals"]}
+
+
 @router.post("/{project_id}/evaluate", response_model=EvaluationOut)
 def evaluate_project(project_id: int, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)

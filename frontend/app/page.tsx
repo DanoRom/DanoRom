@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, Project } from "@/lib/api";
+import { api, Project, Stats } from "@/lib/api";
+import StatsRow from "@/components/StatsRow";
 
 const TEMPLATES = [
   { value: "blank", label: "Blank project" },
@@ -13,6 +14,7 @@ const TEMPLATES = [
 
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [loadError, setLoadError] = useState("");
 
   const refresh = useCallback(() => {
@@ -25,6 +27,10 @@ export default function Dashboard() {
       .catch(() =>
         setLoadError("Backend unreachable — start it with: uvicorn app.main:app --reload")
       );
+    api
+      .getStats()
+      .then(setStats)
+      .catch(() => setStats(null));
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -36,6 +42,8 @@ export default function Dashboard() {
         Start a new project or add an existing one — the engine evaluates its build
         stage and maps the branched pathway to completion.
       </p>
+
+      {stats && stats.total_projects > 0 && <StatsRow stats={stats} />}
 
       <div className="grid-2">
         <StartProjectCard onCreated={refresh} />

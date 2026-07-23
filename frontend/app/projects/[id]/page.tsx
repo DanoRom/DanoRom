@@ -2,24 +2,34 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, Evaluation, ProjectDetail } from "@/lib/api";
-import Markdown from "@/components/Markdown";
+import { api, Evaluation, LearningContent, ProjectDetail } from "@/lib/api";
+import Timeline from "@/components/Timeline";
+import FileTreeExplorer from "@/components/FileTreeExplorer";
+import LearningCenter from "@/components/LearningCenter";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [learning, setLearning] = useState("");
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [learning, setLearning] = useState<LearningContent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const loadLearning = useCallback((stage: string) => {
+  const loadLearning = useCallback((stage: string, stack?: string) => {
     if (!stage || stage === "unevaluated") return;
     api
-      .getLearning(stage)
-      .then((res) => setLearning(res.markdown))
-      .catch(() => setLearning(""));
+      .getLearning(stage, stack)
+      .then((res) => setLearning(res))
+      .catch(() => setLearning(null));
   }, []);
+
+  const loadEvaluations = useCallback(() => {
+    api
+      .listEvaluations(id)
+      .then(setEvaluations)
+      .catch(() => setEvaluations([]));
+  }, [id]);
 
   useEffect(() => {
     api
@@ -30,7 +40,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         loadLearning(p.stage);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load project"));
-  }, [id, loadLearning]);
+    loadEvaluations();
+  }, [id, loadLearning, loadEvaluations]);
 
   const reupload = async (file: File) => {
     setBusy(true);
@@ -41,6 +52,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       setEvaluation(result);
       setProject((p) => (p ? { ...p, stage: result.stage, source_type: "upload" } : p));
       loadLearning(result.stage);
+      loadEvaluations();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Re-upload failed");
     } finally {
@@ -77,6 +89,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       setEvaluation(result);
       setProject((p) => (p ? { ...p, stage: result.stage } : p));
       loadLearning(result.stage);
+      loadEvaluations();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Evaluation failed");
     } finally {
@@ -242,11 +255,15 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         </>
       )}
 
+      {evaluations.length >= 1 && <Timeline evaluations={evaluations} />}
+
+      <FileTreeExplorer projectId={id} />
+
       {learning && (
-        <div className="learning">
-          <span className="badge red">Learning Center</span>
-          <Markdown source={learning} />
-        </div>
+        <LearningCenter
+          learning={learning}
+          onSelectStack={(stack) => loadLearning(learning.stage, stack)}
+        />
       )}
     </main>
   );
