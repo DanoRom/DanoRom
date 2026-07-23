@@ -22,3 +22,6 @@ backend/storage/
 .DS_Store
 .idea/
 .vscode/
+
+# Agent worktrees (session infrastructure, never project code)
+.claude/worktrees/
