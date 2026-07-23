@@ -53,6 +53,14 @@ docker compose up -d db
 # DATABASE_URL=postgresql+pg8000://devplatform:devplatform@localhost:5432/devplatform
 ```
 
+## Deploying
+
+Free-tier deployment (Render for the backend, Neon for Postgres, Vercel for
+the frontend) is fully documented step by step in
+[DEPLOYMENT.md](DEPLOYMENT.md). The repo also includes `render.yaml`, a
+[Render Blueprint](https://render.com/docs/blueprint-spec) that provisions
+the backend as a free web service in one click.
+
 ## Core features
 
 - **Project Management** — start a new project from a template or upload an existing

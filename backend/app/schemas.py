@@ -58,3 +58,31 @@ class ProjectOut(BaseModel):
 
 class ProjectDetail(ProjectOut):
     latest_evaluation: EvaluationOut | None = None
+
+
+class QuizQuestion(BaseModel):
+    q: str
+    options: list[str]
+
+
+class QuizOut(BaseModel):
+    stage: str
+    questions: list[QuizQuestion]
+
+
+class QuizSubmission(BaseModel):
+    answers: list[int]
+
+
+class QuizReviewItem(BaseModel):
+    q: str
+    correct: int
+    your: int
+    why: str
+
+
+class QuizResult(BaseModel):
+    score: int
+    total: int
+    passed: bool
+    review: list[QuizReviewItem]

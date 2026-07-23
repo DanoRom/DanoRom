@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "According to the maintenance guide, when are security updates cheapest?",
+      "options": ["As routine, not as emergency", "When bundled once a year", "Never — leave dependencies as-is", "Only after a breach"],
+      "answer": 0,
+      "why": "The guide states patching dependencies on a schedule is cheaper as routine than as emergency."
+    },
+    {
+      "q": "What does the maintenance guide say your roadmap should be built from?",
+      "options": ["Competitor feature lists", "Recurring user feedback", "Random brainstorming sessions", "Whatever is easiest to build"],
+      "answer": 1,
+      "why": "The guide says recurring requests are your roadmap writing itself — mine user feedback."
+    },
+    {
+      "q": "What should you do before optimizing performance, per the guide?",
+      "options": ["Rewrite the whole app", "Profile to measure the slowest path first", "Guess which part is slow", "Add more servers immediately"],
+      "answer": 1,
+      "why": "The guide advises profiling before optimizing: measure the slowest path, then fix that one, not a guess."
+    }
+  ]
+}

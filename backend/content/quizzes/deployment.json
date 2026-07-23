@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "What should you verify before committing to a hosting platform, per the deployment guide?",
+      "options": ["That it has a large user community", "That its free tier is genuinely free", "That it supports every programming language", "That it has the most features"],
+      "answer": 1,
+      "why": "The guide advises verifying the tier is genuinely free before committing to a host."
+    },
+    {
+      "q": "Why does the guide recommend adding health checks and logging?",
+      "options": ["To satisfy compliance requirements", "So you learn about outages from dashboards, not from users", "To reduce hosting costs", "They are required by most hosts"],
+      "answer": 1,
+      "why": "The guide states you should learn about outages from dashboards, not from users."
+    },
+    {
+      "q": "What is one sign you're ready to move past the deployment stage?",
+      "options": ["The code has zero comments", "A stranger can reach the app at a URL", "The team has grown to 10 people", "All tests are deleted"],
+      "answer": 1,
+      "why": "The guide lists 'a stranger can reach the app at a URL' as a readiness sign for the deployment stage."
+    }
+  ]
+}

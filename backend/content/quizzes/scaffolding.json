@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "Why does the scaffolding guide recommend committing a lockfile?",
+      "options": ["It speeds up install commands", "So every machine builds the same thing", "It is required by Docker", "To reduce repository size"],
+      "answer": 1,
+      "why": "Committing a lockfile ensures every machine builds the same thing, making the project reproducible."
+    },
+    {
+      "q": "What is the target time for a new developer to clone, install, and run the project?",
+      "options": ["Under one minute", "Under ten minutes", "Under one hour", "It doesn't matter at this stage"],
+      "answer": 1,
+      "why": "The guide states a new developer should be able to clone, install, and run in under ten minutes as a sign the stage is complete."
+    },
+    {
+      "q": "What does a 'vertical slice' refer to in the scaffolding stage?",
+      "options": ["A UI component library", "One feature working end to end through UI, API, and database", "A database backup strategy", "A CI/CD pipeline stage"],
+      "answer": 1,
+      "why": "A vertical slice means one feature works end to end — UI to API to database."
+    }
+  ]
+}

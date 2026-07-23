@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "According to the ideation stage guide, what is the biggest risk at this stage?",
+      "options": ["Building the wrong thing", "Writing messy code", "Choosing the wrong database", "Missing test coverage"],
+      "answer": 0,
+      "why": "The guide states the biggest risk during ideation is building the wrong thing, not building the thing wrong."
+    },
+    {
+      "q": "What does the guide recommend about novelty when picking an idea and a stack?",
+      "options": ["Maximize novelty in both to stand out", "Pick a stack you already know — novelty in the idea OR the stack, never both", "Always use the newest framework available", "Novelty doesn't matter at this stage"],
+      "answer": 1,
+      "why": "The guide advises picking a stack you already know, since novelty should be limited to either the idea or the stack, not both."
+    },
+    {
+      "q": "How many core entities should you sketch in the data model during ideation?",
+      "options": ["1-2", "3-5", "10-15", "As many as possible"],
+      "answer": 1,
+      "why": "The guide recommends listing the 3-5 core entities and how they relate."
+    }
+  ]
+}

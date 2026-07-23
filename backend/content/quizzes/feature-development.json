@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "Which paths does the feature-development guide say to cover with tests first?",
+      "options": ["Edge cases and error handlers", "The money paths — flows users depend on", "Only admin features", "Every function regardless of importance"],
+      "answer": 1,
+      "why": "The guide recommends covering the money paths first — the flows users depend on."
+    },
+    {
+      "q": "Why does the guide recommend keeping commits small?",
+      "options": ["Small commits compile faster", "Reviewable changes get reviewed; huge ones get rubber-stamped", "Git requires it", "It reduces merge conflicts only"],
+      "answer": 1,
+      "why": "Small, reviewable commits actually get reviewed, whereas huge commits tend to get rubber-stamped."
+    },
+    {
+      "q": "How should the backlog be prioritized according to the guide?",
+      "options": ["By what's fun to build", "By user impact", "By difficulty, easiest first", "Alphabetically"],
+      "answer": 1,
+      "why": "The guide says to prioritize ruthlessly by user impact, not by what's fun."
+    }
+  ]
+}

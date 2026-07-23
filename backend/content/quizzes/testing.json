@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "q": "What free service does the testing guide suggest for continuous integration?",
+      "options": ["Jenkins on a dedicated server", "GitHub Actions", "A paid CI SaaS", "Manual test runs before each release"],
+      "answer": 1,
+      "why": "The guide specifically calls out GitHub Actions' generous free tier for running the suite on every push."
+    },
+    {
+      "q": "What does containerizing the app with Docker guarantee, per the guide?",
+      "options": ["Faster test runs", "That the app runs identically in a container and on a laptop", "Automatic scaling", "Free hosting"],
+      "answer": 1,
+      "why": "The guide states containerizing makes 'works on my machine' mean every machine — the app runs identically in a container and on a laptop."
+    },
+    {
+      "q": "Where should secrets and URLs come from, according to the testing stage guide?",
+      "options": ["Hardcoded in source files", "Environment variables", "A shared spreadsheet", "Comments in the code"],
+      "answer": 1,
+      "why": "The guide says all secrets and URLs should come from environment variables — this is 'externalizing configuration.'"
+    }
+  ]
+}
