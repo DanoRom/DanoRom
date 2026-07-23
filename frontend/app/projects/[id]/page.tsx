@@ -2,10 +2,11 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, Evaluation, LearningContent, ProjectDetail } from "@/lib/api";
+import { api, CoachResult, Evaluation, LearningContent, ProjectDetail } from "@/lib/api";
 import Timeline from "@/components/Timeline";
 import FileTreeExplorer from "@/components/FileTreeExplorer";
 import LearningCenter from "@/components/LearningCenter";
+import Markdown from "@/components/Markdown";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -15,6 +16,34 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const [learning, setLearning] = useState<LearningContent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [coachOpen, setCoachOpen] = useState<{ branch: number; step: number } | null>(null);
+  const [coachData, setCoachData] = useState<CoachResult | null>(null);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachError, setCoachError] = useState("");
+
+  const closeCoach = () => {
+    setCoachOpen(null);
+    setCoachData(null);
+    setCoachError("");
+  };
+
+  const toggleCoach = async (branchIndex: number, stepIndex: number) => {
+    if (coachOpen && coachOpen.branch === branchIndex && coachOpen.step === stepIndex) {
+      closeCoach();
+      return;
+    }
+    setCoachOpen({ branch: branchIndex, step: stepIndex });
+    setCoachData(null);
+    setCoachError("");
+    setCoachLoading(true);
+    try {
+      setCoachData(await api.coachStep(id, branchIndex, stepIndex));
+    } catch (e) {
+      setCoachError(e instanceof Error ? e.message : "Failed to load coaching");
+    } finally {
+      setCoachLoading(false);
+    }
+  };
 
   const loadLearning = useCallback((stage: string, stack?: string) => {
     if (!stage || stage === "unevaluated") return;
@@ -63,6 +92,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const choosePath = async (branchIndex: number) => {
     setBusy(true);
     setError("");
+    closeCoach();
     try {
       setEvaluation(await api.choosePathway(id, branchIndex));
     } catch (e) {
@@ -84,6 +114,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const evaluate = async () => {
     setBusy(true);
     setError("");
+    closeCoach();
     try {
       const result = await api.evaluateProject(id);
       setEvaluation(result);
@@ -216,18 +247,49 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                   <div className="branch-desc">{branch.description}</div>
                   {branch.steps.map((step, j) => {
                     const done = isChosen && evaluation.completed_steps.includes(j);
+                    const coachActive =
+                      isChosen && coachOpen?.branch === i && coachOpen?.step === j;
                     return isChosen ? (
-                      <label key={j} className={`step clickable ${done ? "done" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={done}
-                          onChange={(e) => toggleStep(j, e.target.checked)}
-                        />
-                        <span>
-                          <strong>{j + 1}. {step.title}</strong>
-                          {step.detail && <div className="detail">{step.detail}</div>}
-                        </span>
-                      </label>
+                      <div key={j}>
+                        <label className={`step clickable ${done ? "done" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            onChange={(e) => toggleStep(j, e.target.checked)}
+                          />
+                          <span>
+                            <strong>{j + 1}. {step.title}</strong>
+                            {step.detail && <div className="detail">{step.detail}</div>}
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost coach-btn"
+                          onClick={() => toggleCoach(i, j)}
+                        >
+                          {coachActive ? "🎓 Hide coaching" : "🎓 Coach me"}
+                        </button>
+                        {coachActive && (
+                          <div className="coach-panel">
+                            <div className="coach-panel-header">
+                              <span className="coach-panel-title">
+                                {coachData ? `engine: ${coachData.engine}` : " "}
+                              </span>
+                              <button
+                                type="button"
+                                className="coach-close"
+                                onClick={closeCoach}
+                                aria-label="Close coaching panel"
+                              >
+                                ×
+                              </button>
+                            </div>
+                            {coachLoading && <p className="muted">Coaching…</p>}
+                            {coachError && <p className="error">{coachError}</p>}
+                            {coachData && <Markdown source={coachData.markdown} />}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div key={j} className="step">
                         <strong>{j + 1}. {step.title}</strong>

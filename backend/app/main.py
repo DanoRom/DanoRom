@@ -4,24 +4,30 @@ from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, engine
-from .routers import coach, learning, projects, stats
+from .routers import auth, coach, learning, projects, stats
 
 Base.metadata.create_all(bind=engine)
 
 
 def _migrate() -> None:
     """Adds columns introduced after the initial release to existing databases."""
-    columns = {c["name"] for c in inspect(engine).get_columns("evaluations")}
-    additions = {
-        "chosen_branch": "INTEGER DEFAULT -1",
-        "completed_steps_json": "TEXT DEFAULT '[]'",
-        "signals_json": "TEXT DEFAULT '{}'",
-        "changes_json": "TEXT DEFAULT '[]'",
+    table_additions = {
+        "evaluations": {
+            "chosen_branch": "INTEGER DEFAULT -1",
+            "completed_steps_json": "TEXT DEFAULT '[]'",
+            "signals_json": "TEXT DEFAULT '{}'",
+            "changes_json": "TEXT DEFAULT '[]'",
+        },
+        "projects": {
+            "owner_id": "INTEGER NULL",
+        },
     }
     with engine.begin() as conn:
-        for name, ddl in additions.items():
-            if name not in columns:
-                conn.execute(text(f"ALTER TABLE evaluations ADD COLUMN {name} {ddl}"))
+        for table, additions in table_additions.items():
+            columns = {c["name"] for c in inspect(engine).get_columns(table)}
+            for name, ddl in additions.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 _migrate()
@@ -35,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(learning.router)
 app.include_router(coach.router)

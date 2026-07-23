@@ -6,11 +6,13 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..auth import ensure_project_access, get_current_user_optional
 from ..config import settings
 from ..database import get_db
-from ..models import Evaluation, Project
+from ..models import Evaluation, Project, User
 from ..schemas import (
     ChooseBranch,
     EvaluationOut,
@@ -72,12 +74,24 @@ def _latest_evaluation(project: Project) -> Evaluation:
 
 
 @router.get("", response_model=list[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
-    return db.query(Project).order_by(Project.id.desc()).all()
+def list_projects(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    query = db.query(Project)
+    if user is not None:
+        query = query.filter(or_(Project.owner_id == user.id, Project.owner_id.is_(None)))
+    else:
+        query = query.filter(Project.owner_id.is_(None))
+    return query.order_by(Project.id.desc()).all()
 
 
 @router.post("", response_model=ProjectOut, status_code=201)
-def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     if not payload.name.strip():
         raise HTTPException(status_code=422, detail="Project name is required")
     project = Project(
@@ -85,6 +99,7 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db)):
         description=payload.description.strip(),
         source_type="template",
         template=payload.template,
+        owner_id=user.id if user else None,
     )
     db.add(project)
     db.commit()
@@ -103,6 +118,7 @@ async def upload_project(
     file: UploadFile,
     name: str = "",
     db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=422, detail="Upload a .zip archive of the project")
@@ -110,6 +126,7 @@ async def upload_project(
     project = Project(
         name=name.strip() or Path(file.filename).stem,
         source_type="upload",
+        owner_id=user.id if user else None,
     )
     db.add(project)
     db.commit()
@@ -186,7 +203,11 @@ def _strip_github_wrapper(incoming: Path) -> None:
 
 
 @router.post("/import", response_model=ProjectOut, status_code=201)
-async def import_project(payload: ProjectImport, db: Session = Depends(get_db)):
+async def import_project(
+    payload: ProjectImport,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     """Imports a public GitHub repo by URL, mirroring the .zip upload flow."""
     try:
         owner, repo, branch = parse_github_url(payload.url)
@@ -198,7 +219,11 @@ async def import_project(payload: ProjectImport, db: Session = Depends(get_db)):
     else:
         download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
 
-    project = Project(name=payload.name.strip() or repo, source_type="github")
+    project = Project(
+        name=payload.name.strip() or repo,
+        source_type="github",
+        owner_id=user.id if user else None,
+    )
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -252,11 +277,17 @@ async def import_project(payload: ProjectImport, db: Session = Depends(get_db)):
 
 
 @router.post("/{project_id}/reupload", response_model=ProjectOut)
-async def reupload_project(project_id: int, file: UploadFile, db: Session = Depends(get_db)):
+async def reupload_project(
+    project_id: int,
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     """Replaces a project's files with a new archive so re-evaluation reflects real progress."""
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=422, detail="Upload a .zip archive of the project")
 
@@ -326,10 +357,15 @@ def get_project_tree(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{project_id}/evaluate", response_model=EvaluationOut)
-def evaluate_project(project_id: int, db: Session = Depends(get_db)):
+def evaluate_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     if not project.root_path or not Path(project.root_path).is_dir():
         raise HTTPException(status_code=409, detail="Project has no files to scan")
 
@@ -384,10 +420,16 @@ def _diff_signals(previous: dict | None, current: dict) -> list[str]:
 
 
 @router.post("/{project_id}/pathway", response_model=EvaluationOut)
-def choose_pathway(project_id: int, payload: ChooseBranch, db: Session = Depends(get_db)):
+def choose_pathway(
+    project_id: int,
+    payload: ChooseBranch,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     evaluation = _latest_evaluation(project)
     branches = json.loads(evaluation.branches_json or "[]")
     if not 0 <= payload.branch_index < len(branches):
@@ -401,10 +443,16 @@ def choose_pathway(project_id: int, payload: ChooseBranch, db: Session = Depends
 
 
 @router.post("/{project_id}/pathway/steps", response_model=EvaluationOut)
-def update_step(project_id: int, payload: StepUpdate, db: Session = Depends(get_db)):
+def update_step(
+    project_id: int,
+    payload: StepUpdate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     evaluation = _latest_evaluation(project)
     if evaluation.chosen_branch < 0:
         raise HTTPException(status_code=409, detail="Choose a pathway first")
@@ -424,10 +472,15 @@ def update_step(project_id: int, payload: StepUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     if project.root_path:
         shutil.rmtree(project.root_path, ignore_errors=True)
     db.delete(project)

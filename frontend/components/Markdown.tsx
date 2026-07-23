@@ -22,6 +22,7 @@ export default function Markdown({ source }: { source: string }) {
   const blocks: ReactNode[] = [];
   let listItems: string[] = [];
   let key = 0;
+  let codeLines: string[] | null = null;
 
   const flushList = () => {
     if (listItems.length) {
@@ -36,7 +37,32 @@ export default function Markdown({ source }: { source: string }) {
     }
   };
 
+  const flushCode = () => {
+    if (codeLines !== null) {
+      blocks.push(
+        <pre key={key++} className="md-pre">
+          <code>{codeLines.join("\n")}</code>
+        </pre>
+      );
+      codeLines = null;
+    }
+  };
+
   for (const raw of source.split("\n")) {
+    if (/^```/.test(raw.trim())) {
+      if (codeLines === null) {
+        flushList();
+        codeLines = [];
+      } else {
+        flushCode();
+      }
+      continue;
+    }
+    if (codeLines !== null) {
+      codeLines.push(raw);
+      continue;
+    }
+
     const line = raw.trimEnd();
     const heading = line.match(/^(#{1,3})\s+(.*)/);
     const bullet = line.match(/^[-*]\s+(.*)/);
@@ -63,6 +89,7 @@ export default function Markdown({ source }: { source: string }) {
       blocks.push(<p key={key++}>{renderInline(line, `p-${key}`)}</p>);
     }
   }
+  flushCode();
   flushList();
 
   return <div>{blocks}</div>;

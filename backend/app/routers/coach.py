@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth import ensure_project_access, get_current_user_optional
 from ..database import get_db
-from ..models import Project
+from ..models import Project, User
 from ..services import gemini, scanner
 
 router = APIRouter(prefix="/api/projects", tags=["coach"])
@@ -23,10 +24,16 @@ class CoachOut(BaseModel):
 
 
 @router.post("/{project_id}/coach", response_model=CoachOut)
-def coach_step(project_id: int, payload: CoachRequest, db: Session = Depends(get_db)):
+def coach_step(
+    project_id: int,
+    payload: CoachRequest,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     if not project.evaluations:
         raise HTTPException(status_code=409, detail="Evaluate the project first")
     if not project.root_path or not Path(project.root_path).is_dir():
