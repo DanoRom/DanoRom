@@ -63,11 +63,33 @@ the backend as a free web service in one click.
 
 ## Core features
 
-- **Project Management** — start a new project from a template or upload an existing
-  repo as a `.zip`.
+- **Project Management** — start a new project from a template, upload an existing
+  repo as a `.zip`, or import a public GitHub repo by URL. Owned projects can be
+  deleted from the project page.
 - **Stage Evaluation** — the backend scans the project tree for artifacts and
   dependencies and passes the report to Gemini, which classifies the stage
   (ideation → scaffolding → feature-development → testing → deployment → maintenance).
+  Runs on the free Gemini tier, with a zero-cost heuristic fallback when no
+  `GEMINI_API_KEY` is set.
 - **Branching Pathways** — a visual, step-by-step branch of the next logical
-  development actions.
-- **Learning Center** — contextual markdown documentation loaded for the detected stage.
+  development actions. Choose a path to turn it into a persistent checklist with a
+  progress bar; completing every step unlocks the next evaluation. Pathways can be
+  exported as a markdown checklist.
+- **AI Step Coach** — a "🎓 Coach me" button on every step of the chosen path asks
+  Gemini for guidance grounded in the project's actual file tree: concrete actions,
+  real paths and commands, and a definition of done.
+- **Re-upload & Diff-Aware Re-evaluation** — upload an updated `.zip` at any time;
+  the next evaluation reports exactly what changed (`+ tests detected`, `+12 files`,
+  …) and how it moved the stage.
+- **Progress Timeline** — the full evaluation history per project, with stages,
+  confidence, engines, and change chips.
+- **File-Tree Explorer** — see the tree the scanner saw, with tests/CI/Docker
+  highlighted and missing artifacts flagged.
+- **Dashboard Stats** — project totals, evaluations, completed steps, and a stage
+  distribution bar.
+- **Learning Center** — contextual markdown documentation loaded for the detected
+  stage, with Python/TypeScript-specific addenda and a per-stage quiz ("Stage
+  mastered" badge on passing).
+- **Accounts** — optional username/password accounts (stdlib PBKDF2, bearer-token
+  sessions). Owned projects are private to their owner; everything also works
+  logged-out for ownerless projects.

@@ -374,6 +374,15 @@ label {
   cursor: pointer;
 }
 
+.ghost.danger {
+  border-color: var(--ferrari-red);
+  color: #ffb3a7;
+}
+
+.ghost.danger:hover {
+  background: rgba(255, 40, 0, 0.15);
+}
+
 .progress-track {
   height: 8px;
   background: rgba(25, 25, 112, 0.6);

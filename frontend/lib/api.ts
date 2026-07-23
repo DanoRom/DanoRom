@@ -218,6 +218,12 @@ export const api = {
       body: JSON.stringify({ branch_index: branchIndex, step_index: stepIndex }),
     }).then((r) => handle<CoachResult>(r)),
 
+  deleteProject: (id: string | number) =>
+    fetch(`${API_BASE}/api/projects/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => handle<void>(r)),
+
   getLearning: (stage: string, stack?: string) =>
     fetch(
       `${API_BASE}/api/learning/${stage}${stack ? `?stack=${encodeURIComponent(stack)}` : ""}`

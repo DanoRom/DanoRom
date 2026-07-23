@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, CoachResult, Evaluation, LearningContent, ProjectDetail } from "@/lib/api";
 import Timeline from "@/components/Timeline";
 import FileTreeExplorer from "@/components/FileTreeExplorer";
@@ -10,6 +11,7 @@ import Markdown from "@/components/Markdown";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
@@ -111,6 +113,22 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  const deleteProject = async () => {
+    if (!project) return;
+    if (!window.confirm(`Delete "${project.name}" and all its files? This cannot be undone.`)) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api.deleteProject(id);
+      router.push("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete project");
+      setBusy(false);
+    }
+  };
+
   const evaluate = async () => {
     setBusy(true);
     setError("");
@@ -171,6 +189,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
             }}
           />
         </label>
+        <button className="ghost danger" onClick={deleteProject} disabled={busy}>
+          🗑 Delete project
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
 
