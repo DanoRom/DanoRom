@@ -206,6 +206,78 @@ def _heuristic_evaluate(scan: dict) -> dict:
     }
 
 
+COACH_PROMPT_TEMPLATE = """You are a hands-on senior engineer coaching a developer through one concrete task in THEIR codebase.
+
+Their project's file tree:
+{tree}
+
+Detected signals:
+{signals}
+
+Project stage: {stage}
+They chose the pathway "{branch_title}" and are on this step:
+Step: {step_title}
+Detail: {step_detail}
+
+Write a focused coaching guide in plain markdown (no code fences around the whole answer) with exactly these sections:
+## Why this matters
+One short paragraph tied to THIS project's actual state.
+## Do it
+3-6 numbered actions. Be concrete for THIS codebase: reference real file paths from the tree, real tools from the detected languages/dependencies, exact commands to run. If a new file is needed, give its full path and complete contents in a fenced code block.
+## Definition of done
+2-3 bullet checks the developer can verify.
+
+Stay under 450 words. Never invent files that are not in the tree; if something is missing, say to create it."""
+
+
+def coach_step(scan: dict, stage: str, branch: dict, step: dict) -> dict:
+    """Returns {markdown, engine} — codebase-specific guidance for one pathway step."""
+    if settings.gemini_api_key:
+        try:
+            prompt = COACH_PROMPT_TEMPLATE.format(
+                tree=scan["tree"][:10000],
+                signals=json.dumps(scan["signals"], default=str, indent=2),
+                stage=stage,
+                branch_title=branch.get("title", ""),
+                step_title=step.get("title", ""),
+                step_detail=step.get("detail", ""),
+            )
+            url = GEMINI_URL.format(model=settings.gemini_model, key=settings.gemini_api_key)
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.4},
+            }
+            response = httpx.post(url, json=payload, timeout=60)
+            response.raise_for_status()
+            text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            return {"markdown": text.strip(), "engine": "gemini"}
+        except Exception:
+            pass
+    return {"markdown": _heuristic_coach(scan, step), "engine": "heuristic"}
+
+
+def _heuristic_coach(scan: dict, step: dict) -> str:
+    s = scan["signals"]
+    langs = ", ".join(s["languages"]) or "your stack"
+    lines = [
+        f"## Why this matters",
+        step.get("detail", "This step moves the project toward the next stage."),
+        "",
+        "## Do it",
+        f"1. Review the current project tree ({s['file_count']} files, {langs}) and decide where this change belongs.",
+        f"2. {step.get('title', 'Complete the step')} — start with the smallest version that works.",
+        "3. Run the project locally and confirm nothing broke.",
+        "4. Commit the change with a clear message.",
+        "",
+        "## Definition of done",
+        f"- “{step.get('title', 'The step')}” is visibly true in the repository.",
+        "- The project still runs end to end.",
+        "",
+        "_Add a free Gemini API key (GEMINI_API_KEY) to get guidance tailored to your exact files._",
+    ]
+    return "\n".join(lines)
+
+
 def _branch(title: str, description: str, priority: str, steps: list[tuple[str, str]]) -> dict:
     return {
         "title": title,

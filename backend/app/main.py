@@ -4,7 +4,7 @@ from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, engine
-from .routers import learning, projects
+from .routers import coach, learning, projects
 
 Base.metadata.create_all(bind=engine)
 
@@ -37,6 +37,7 @@ app.add_middleware(
 
 app.include_router(projects.router)
 app.include_router(learning.router)
+app.include_router(coach.router)
 
 
 @app.get("/api/health")
