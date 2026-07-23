@@ -325,10 +325,15 @@ async def reupload_project(
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     detail = ProjectDetail.model_validate(project)
     detail.latest_evaluation = _evaluation_out(
         project.evaluations[0] if project.evaluations else None
@@ -337,18 +342,28 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{project_id}/evaluations", response_model=list[EvaluationOut])
-def list_evaluations(project_id: int, db: Session = Depends(get_db)):
+def list_evaluations(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     return [_evaluation_out(evaluation) for evaluation in project.evaluations]
 
 
 @router.get("/{project_id}/tree")
-def get_project_tree(project_id: int, db: Session = Depends(get_db)):
+def get_project_tree(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    ensure_project_access(project, user)
     if not project.root_path or not Path(project.root_path).is_dir():
         raise HTTPException(status_code=409, detail="Project has no files to scan")
 
