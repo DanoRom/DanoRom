@@ -31,6 +31,8 @@ export interface Evaluation {
   engine: string;
   created_at: string;
   branches: PathwayBranch[];
+  chosen_branch: number;
+  completed_steps: number[];
 }
 
 export interface ProjectDetail extends Project {
@@ -78,6 +80,20 @@ export const api = {
     fetch(`${API_BASE}/api/projects/${id}/evaluate`, { method: "POST" }).then((r) =>
       handle<Evaluation>(r)
     ),
+
+  choosePathway: (id: string | number, branchIndex: number) =>
+    fetch(`${API_BASE}/api/projects/${id}/pathway`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch_index: branchIndex }),
+    }).then((r) => handle<Evaluation>(r)),
+
+  updateStep: (id: string | number, stepIndex: number, done: boolean) =>
+    fetch(`${API_BASE}/api/projects/${id}/pathway/steps`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ step_index: stepIndex, done }),
+    }).then((r) => handle<Evaluation>(r)),
 
   getLearning: (stage: string) =>
     fetch(`${API_BASE}/api/learning/${stage}`).then((r) =>

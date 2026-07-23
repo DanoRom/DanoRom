@@ -37,6 +37,8 @@ class Evaluation(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     branches_json: Mapped[str] = mapped_column(Text, default="[]")
     engine: Mapped[str] = mapped_column(String(20), default="heuristic")  # gemini | heuristic
+    chosen_branch: Mapped[int] = mapped_column(Integer, default=-1)  # -1 = none chosen yet
+    completed_steps_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="evaluations")

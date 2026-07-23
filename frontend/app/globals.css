@@ -245,6 +245,65 @@ label {
   padding-bottom: 1.35rem;
 }
 
+.branch.chosen {
+  border-color: var(--ferrari-red);
+  box-shadow: 0 0 14px rgba(255, 40, 0, 0.35);
+}
+
+.branch.dimmed {
+  opacity: 0.55;
+}
+
+.branch.dimmed:hover {
+  opacity: 1;
+}
+
+.step.clickable {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.step.clickable input[type="checkbox"] {
+  width: auto;
+  margin: 0.2rem 0 0;
+  accent-color: var(--ferrari-red);
+  cursor: pointer;
+}
+
+.step.done {
+  border-left-color: var(--ferrari-red);
+}
+
+.step.done strong {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.cta.full {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.path-progress {
+  margin-top: 0.75rem;
+}
+
+.progress-track {
+  height: 8px;
+  background: rgba(25, 25, 112, 0.6);
+  border: 1px solid var(--oak-brown);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--ferrari-red);
+  transition: width 0.25s ease;
+}
+
 /* ---------- Learning center ---------- */
 .learning {
   background: var(--blue);

@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import Evaluation, Project
-from ..schemas import EvaluationOut, ProjectCreate, ProjectDetail, ProjectOut
+from ..schemas import (
+    ChooseBranch,
+    EvaluationOut,
+    ProjectCreate,
+    ProjectDetail,
+    ProjectOut,
+    StepUpdate,
+)
 from ..services import gemini, scanner, templates
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -33,7 +40,15 @@ def _evaluation_out(evaluation: Evaluation | None) -> EvaluationOut | None:
         engine=evaluation.engine,
         created_at=evaluation.created_at,
         branches=json.loads(evaluation.branches_json or "[]"),
+        chosen_branch=evaluation.chosen_branch,
+        completed_steps=json.loads(evaluation.completed_steps_json or "[]"),
     )
+
+
+def _latest_evaluation(project: Project) -> Evaluation:
+    if not project.evaluations:
+        raise HTTPException(status_code=409, detail="Evaluate the project first")
+    return project.evaluations[0]
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -160,6 +175,46 @@ def evaluate_project(project_id: int, db: Session = Depends(get_db)):
     )
     project.stage = result["stage"]
     db.add(evaluation)
+    db.commit()
+    db.refresh(evaluation)
+    return _evaluation_out(evaluation)
+
+
+@router.post("/{project_id}/pathway", response_model=EvaluationOut)
+def choose_pathway(project_id: int, payload: ChooseBranch, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    evaluation = _latest_evaluation(project)
+    branches = json.loads(evaluation.branches_json or "[]")
+    if not 0 <= payload.branch_index < len(branches):
+        raise HTTPException(status_code=422, detail="Invalid branch index")
+    if evaluation.chosen_branch != payload.branch_index:
+        evaluation.chosen_branch = payload.branch_index
+        evaluation.completed_steps_json = "[]"  # switching paths resets progress
+    db.commit()
+    db.refresh(evaluation)
+    return _evaluation_out(evaluation)
+
+
+@router.post("/{project_id}/pathway/steps", response_model=EvaluationOut)
+def update_step(project_id: int, payload: StepUpdate, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    evaluation = _latest_evaluation(project)
+    if evaluation.chosen_branch < 0:
+        raise HTTPException(status_code=409, detail="Choose a pathway first")
+    branches = json.loads(evaluation.branches_json or "[]")
+    steps = branches[evaluation.chosen_branch].get("steps", [])
+    if not 0 <= payload.step_index < len(steps):
+        raise HTTPException(status_code=422, detail="Invalid step index")
+    completed = set(json.loads(evaluation.completed_steps_json or "[]"))
+    if payload.done:
+        completed.add(payload.step_index)
+    else:
+        completed.discard(payload.step_index)
+    evaluation.completed_steps_json = json.dumps(sorted(completed))
     db.commit()
     db.refresh(evaluation)
     return _evaluation_out(evaluation)

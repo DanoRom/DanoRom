@@ -31,6 +31,17 @@ class EvaluationOut(BaseModel):
     engine: str
     created_at: datetime
     branches: list[PathwayBranch] = []
+    chosen_branch: int = -1
+    completed_steps: list[int] = []
+
+
+class ChooseBranch(BaseModel):
+    branch_index: int
+
+
+class StepUpdate(BaseModel):
+    step_index: int
+    done: bool
 
 
 class ProjectOut(BaseModel):
