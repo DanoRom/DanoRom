@@ -32,6 +32,22 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load project"));
   }, [id, loadLearning]);
 
+  const reupload = async (file: File) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.reuploadProject(id, file);
+      const result = await api.evaluateProject(id);
+      setEvaluation(result);
+      setProject((p) => (p ? { ...p, stage: result.stage, source_type: "upload" } : p));
+      loadLearning(result.stage);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Re-upload failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const choosePath = async (branchIndex: number) => {
     setBusy(true);
     setError("");
@@ -93,9 +109,25 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         <span className="badge" style={{ marginLeft: "0.5rem" }}>{project.stage}</span>
       </p>
 
-      <button className="cta" onClick={evaluate} disabled={busy}>
-        {busy ? "Scanning & evaluating…" : evaluation ? "Re-evaluate stage" : "Evaluate build stage"}
-      </button>
+      <div className="action-row">
+        <button className="cta" onClick={evaluate} disabled={busy}>
+          {busy ? "Scanning & evaluating…" : evaluation ? "Re-evaluate stage" : "Evaluate build stage"}
+        </button>
+        <label className="ghost upload-label">
+          {busy ? "Working…" : "⬆ Upload updated .zip & re-evaluate"}
+          <input
+            type="file"
+            accept=".zip"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) reupload(f);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
       {error && <p className="error">{error}</p>}
 
       {evaluation && (

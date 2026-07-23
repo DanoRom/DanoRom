@@ -81,6 +81,15 @@ export const api = {
       handle<Evaluation>(r)
     ),
 
+  reuploadProject: (id: string | number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return fetch(`${API_BASE}/api/projects/${id}/reupload`, {
+      method: "POST",
+      body: form,
+    }).then((r) => handle<Project>(r));
+  },
+
   choosePathway: (id: string | number, branchIndex: number) =>
     fetch(`${API_BASE}/api/projects/${id}/pathway`, {
       method: "POST",

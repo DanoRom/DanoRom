@@ -290,6 +290,18 @@ label {
   margin-top: 0.75rem;
 }
 
+.action-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.upload-label {
+  display: inline-block;
+  cursor: pointer;
+}
+
 .progress-track {
   height: 8px;
   background: rgba(25, 25, 112, 0.6);

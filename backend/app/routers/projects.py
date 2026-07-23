@@ -142,6 +142,48 @@ def _safe_extract(archive_path: Path, dest: Path) -> None:
         archive.extractall(dest)
 
 
+@router.post("/{project_id}/reupload", response_model=ProjectOut)
+async def reupload_project(project_id: int, file: UploadFile, db: Session = Depends(get_db)):
+    """Replaces a project's files with a new archive so re-evaluation reflects real progress."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=422, detail="Upload a .zip archive of the project")
+
+    incoming = settings.storage_dir / f"project-{project.id}-incoming"
+    shutil.rmtree(incoming, ignore_errors=True)
+    incoming.mkdir(parents=True)
+    archive_path = incoming.with_suffix(".zip")
+
+    try:
+        size = 0
+        with archive_path.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Archive exceeds 50 MB limit")
+                out.write(chunk)
+        _safe_extract(archive_path, incoming)
+    except (zipfile.BadZipFile, ValueError) as exc:
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=f"Invalid archive: {exc}")
+    except HTTPException:
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    finally:
+        archive_path.unlink(missing_ok=True)
+
+    dest = _project_dir(project.id)
+    shutil.rmtree(dest, ignore_errors=True)
+    incoming.rename(dest)
+    project.root_path = str(dest)
+    project.source_type = "upload"  # a templated project becomes user-owned files once replaced
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 @router.get("/{project_id}", response_model=ProjectDetail)
 def get_project(project_id: int, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
