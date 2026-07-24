@@ -53,6 +53,16 @@ docker compose up -d db
 # DATABASE_URL=postgresql+pg8000://devplatform:devplatform@localhost:5432/devplatform
 ```
 
+## Quick share (temporary link, no deployment)
+
+To hand a friend a link without deploying anywhere, on Windows run
+`scripts\share.ps1` from the repo root (PowerShell). One window, no manual
+URL copy-pasting: it starts both Cloudflare quick tunnels, wires the URLs
+into the frontend and backend automatically, and prints the link to send.
+Requires `cloudflared` (`winget install Cloudflare.cloudflared`) and the
+usual one-time `venv`/`npm install` setup. See the script's header comment
+for exact prerequisites and how to stop everything.
+
 ## Deploying
 
 Free-tier deployment (Render for the backend, Neon for Postgres, Vercel for
