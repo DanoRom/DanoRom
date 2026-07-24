@@ -3,6 +3,9 @@
 A platform that evaluates the build stage of a developer's application and provides
 branched pathways to completion. See [CLAUDE.md](CLAUDE.md) for the project charter.
 
+> **New here? Start with [GETTING-STARTED.md](GETTING-STARTED.md)** — a complete,
+> from-scratch setup and run guide (Windows/PowerShell, plus sharing and deployment).
+
 ## Architecture
 
 ```
@@ -18,6 +21,9 @@ backend/    FastAPI — project management, directory scanner, Gemini evaluation
   Blue `#0000FF` navigation & cards, Ferrari Red `#FF2800` CTAs, Oak Brown `#806517` borders.
 
 ## Running locally
+
+For a detailed walkthrough (including one-time setup and troubleshooting) see
+[GETTING-STARTED.md](GETTING-STARTED.md). The short version:
 
 ### Backend
 
