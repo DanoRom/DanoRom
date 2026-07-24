@@ -23,6 +23,12 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    app_version: str = "1.1.0"
+
+    # Per-client sliding-window API rate limit. Set to 0 to disable.
+    # Protects the API when it is exposed publicly (e.g. via a share tunnel).
+    rate_limit_per_minute: int = 120
+
     class Config:
         env_file = ".env"
 

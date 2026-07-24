@@ -145,11 +145,24 @@ async function handle<T>(res: Response): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+export interface VersionInfo {
+  version: string;
+  engine: string;
+}
+
 export const api = {
-  listProjects: () =>
-    fetch(`${API_BASE}/api/projects`, { headers: authHeaders() }).then((r) =>
+  listProjects: (params?: { q?: string; stage?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set("q", params.q);
+    if (params?.stage) qs.set("stage", params.stage);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetch(`${API_BASE}/api/projects${suffix}`, { headers: authHeaders() }).then((r) =>
       handle<Project[]>(r)
-    ),
+    );
+  },
+
+  getVersion: () =>
+    fetch(`${API_BASE}/api/version`).then((r) => handle<VersionInfo>(r)),
 
   createProject: (payload: { name: string; description: string; template: string }) =>
     fetch(`${API_BASE}/api/projects`, {

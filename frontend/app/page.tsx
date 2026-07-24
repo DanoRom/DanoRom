@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, Project, Stats } from "@/lib/api";
+import { api, Project, Stats, VersionInfo } from "@/lib/api";
 import StatsRow from "@/components/StatsRow";
 
 const TEMPLATES = [
@@ -12,28 +12,61 @@ const TEMPLATES = [
   { value: "fullstack", label: "Full-stack (Next.js + FastAPI)" },
 ];
 
+const STAGE_FILTERS = [
+  "all",
+  "unevaluated",
+  "ideation",
+  "scaffolding",
+  "feature-development",
+  "testing",
+  "deployment",
+  "maintenance",
+];
+
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [version, setVersion] = useState<VersionInfo | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [stageFilter, setStageFilter] = useState("all");
 
-  const refresh = useCallback(() => {
+  const load = useCallback((q: string, stage: string) => {
+    setLoading(true);
     api
-      .listProjects()
+      .listProjects({ q: q || undefined, stage: stage === "all" ? undefined : stage })
       .then((list) => {
         setProjects(list);
         setLoadError("");
       })
       .catch(() =>
-        setLoadError("Backend unreachable — start it with: uvicorn app.main:app --reload")
-      );
-    api
-      .getStats()
-      .then(setStats)
-      .catch(() => setStats(null));
+        setLoadError("Backend unreachable — start it with `python dev.py` in the backend folder.")
+      )
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(refresh, [refresh]);
+  const refreshStats = useCallback(() => {
+    api.getStats().then(setStats).catch(() => setStats(null));
+  }, []);
+
+  // Debounce search + filter changes into a single request.
+  useEffect(() => {
+    const t = setTimeout(() => load(query, stageFilter), 250);
+    return () => clearTimeout(t);
+  }, [query, stageFilter, load]);
+
+  useEffect(() => {
+    refreshStats();
+    api.getVersion().then(setVersion).catch(() => setVersion(null));
+  }, [refreshStats]);
+
+  const onCreated = useCallback(() => {
+    load(query, stageFilter);
+    refreshStats();
+  }, [load, query, stageFilter, refreshStats]);
+
+  const filtering = query.trim() !== "" || stageFilter !== "all";
 
   return (
     <main className="page">
@@ -46,30 +79,73 @@ export default function Dashboard() {
       {stats && stats.total_projects > 0 && <StatsRow stats={stats} />}
 
       <div className="grid-2">
-        <StartProjectCard onCreated={refresh} />
-        <AddProjectCard onCreated={refresh} />
+        <StartProjectCard onCreated={onCreated} />
+        <AddProjectCard onCreated={onCreated} />
       </div>
 
-      <h2 style={{ marginBottom: "1rem" }}>Your projects</h2>
+      <div className="projects-header">
+        <h2>Your projects</h2>
+        <div className="filters">
+          <input
+            className="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name…"
+          />
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+            {STAGE_FILTERS.map((s) => (
+              <option key={s} value={s}>
+                {s === "all" ? "All stages" : s}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {loadError && <p className="error">{loadError}</p>}
-      {!loadError && projects.length === 0 && (
-        <p className="muted">No projects yet — create or upload one above.</p>
+
+      {loading && !loadError && (
+        <div>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton-row" />
+          ))}
+        </div>
       )}
-      {projects.map((p) => (
-        <Link key={p.id} href={`/projects/${p.id}`}>
-          <div className="project-row">
-            <div>
-              <strong>{p.name}</strong>
-              <div className="muted" style={{ fontSize: "0.85rem" }}>
-                {p.source_type === "upload" ? "Uploaded repo" : `Template: ${p.template}`}
+
+      {!loading && !loadError && projects.length === 0 && (
+        <p className="muted">
+          {filtering
+            ? "No projects match your search."
+            : "No projects yet — create or upload one above."}
+        </p>
+      )}
+
+      {!loading &&
+        projects.map((p) => (
+          <Link key={p.id} href={`/projects/${p.id}`}>
+            <div className="project-row">
+              <div>
+                <strong>{p.name}</strong>
+                <div className="muted" style={{ fontSize: "0.85rem" }}>
+                  {p.source_type === "upload"
+                    ? "Uploaded repo"
+                    : p.source_type === "github"
+                    ? "Imported from GitHub"
+                    : `Template: ${p.template}`}
+                </div>
               </div>
+              <span className={`badge ${p.stage === "unevaluated" ? "" : "red"}`}>
+                {p.stage}
+              </span>
             </div>
-            <span className={`badge ${p.stage === "unevaluated" ? "" : "red"}`}>
-              {p.stage}
-            </span>
-          </div>
-        </Link>
-      ))}
+          </Link>
+        ))}
+
+      {version && (
+        <p className="muted" style={{ fontSize: "0.78rem", marginTop: "2rem" }}>
+          v{version.version} · {version.engine === "gemini" ? "Gemini AI" : "heuristic"} engine
+        </p>
+      )}
     </main>
   );
 }

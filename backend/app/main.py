@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, engine
+from .ratelimit import SlidingWindowRateLimiter
 from .routers import auth, coach, learning, projects, stats
 
 Base.metadata.create_all(bind=engine)
@@ -32,7 +34,7 @@ def _migrate() -> None:
 
 _migrate()
 
-app = FastAPI(title="Developer Platform API", version="0.1.0")
+app = FastAPI(title="Developer Platform API", version=settings.app_version)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +42,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_limiter = SlidingWindowRateLimiter(settings.rate_limit_per_minute)
+_RATE_LIMIT_EXEMPT = {"/api/health", "/api/version"}
+
+
+def _client_key(request: Request) -> str:
+    """Best-effort real client identity. Behind a Cloudflare tunnel the
+    origin socket is always localhost, so prefer the forwarded headers."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return (
+        request.headers.get("cf-connecting-ip")
+        or (forwarded.split(",")[0].strip() if forwarded else "")
+        or (request.client.host if request.client else "unknown")
+    )
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    path = request.url.path
+    if (
+        settings.rate_limit_per_minute > 0
+        and path.startswith("/api/")
+        and path not in _RATE_LIMIT_EXEMPT
+        and not _limiter.allow(_client_key(request))
+    ):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded — slow down a moment and try again."},
+        )
+    return await call_next(request)
+
 
 app.include_router(auth.router)
 app.include_router(projects.router)
@@ -51,3 +84,11 @@ app.include_router(stats.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/version")
+def version():
+    return {
+        "version": settings.app_version,
+        "engine": "gemini" if settings.gemini_api_key else "heuristic",
+    }

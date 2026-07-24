@@ -75,6 +75,8 @@ def _latest_evaluation(project: Project) -> Evaluation:
 
 @router.get("", response_model=list[ProjectOut])
 def list_projects(
+    q: str | None = None,
+    stage: str | None = None,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
@@ -83,6 +85,10 @@ def list_projects(
         query = query.filter(or_(Project.owner_id == user.id, Project.owner_id.is_(None)))
     else:
         query = query.filter(Project.owner_id.is_(None))
+    if q and q.strip():
+        query = query.filter(Project.name.ilike(f"%{q.strip()}%"))
+    if stage and stage.strip():
+        query = query.filter(Project.stage == stage.strip())
     return query.order_by(Project.id.desc()).all()
 
 
