@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body suppressHydrationWarning>
         <nav className="nav">
           <Link href="/" className="nav-title">
             ⚙ Developer Platform
