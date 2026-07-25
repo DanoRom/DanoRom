@@ -34,6 +34,12 @@ GITHUB_URL_RE = re.compile(
     r"(?:/tree/(?P<branch>[\w./-]+?))?/?$"
 )
 
+# GitHub's API requires a User-Agent header; the Accept header selects the v3 JSON API.
+GITHUB_HEADERS = {
+    "User-Agent": "developer-platform",
+    "Accept": "application/vnd.github+json",
+}
+
 # Maps scanner boolean signals to the human-readable labels used in diff output.
 BOOLEAN_SIGNAL_LABELS = {
     "has_readme": "readme",
@@ -208,6 +214,33 @@ def _strip_github_wrapper(incoming: Path) -> None:
         inner.rmdir()
 
 
+async def _resolve_github_zip_url(client: httpx.AsyncClient, owner: str, repo: str, branch: str | None) -> str:
+    """Returns the codeload .zip URL for the repo, resolving the real default
+    branch when none was given. Raises HTTPException with a clear message."""
+    if branch:
+        return f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
+    meta = await client.get(
+        f"https://api.github.com/repos/{owner}/{repo}", headers=GITHUB_HEADERS
+    )
+    if meta.status_code == 404:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository {owner}/{repo} not found — check the URL, or note that private repos can't be imported.",
+        )
+    if meta.status_code in (403, 429):
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub rate limit reached (unauthenticated imports are limited). Try again in a few minutes.",
+        )
+    if meta.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub returned status {meta.status_code} for {owner}/{repo}.",
+        )
+    default_branch = meta.json().get("default_branch") or "main"
+    return f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{default_branch}"
+
+
 @router.post("/import", response_model=ProjectOut, status_code=201)
 async def import_project(
     payload: ProjectImport,
@@ -219,11 +252,6 @@ async def import_project(
         owner, repo, branch = parse_github_url(payload.url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-
-    if branch:
-        download_url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
-    else:
-        download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
 
     project = Project(
         name=payload.name.strip() or repo,
@@ -243,11 +271,16 @@ async def import_project(
         size = 0
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                async with client.stream("GET", download_url) as response:
+                download_url = await _resolve_github_zip_url(client, owner, repo, branch)
+                async with client.stream("GET", download_url, headers=GITHUB_HEADERS) as response:
                     if response.status_code != 200:
                         raise HTTPException(
                             status_code=404,
-                            detail=f"Could not find {owner}/{repo} on GitHub (status {response.status_code})",
+                            detail=(
+                                f"Could not download {owner}/{repo} "
+                                f"(archive request returned {response.status_code}). "
+                                "Check the repository and branch are correct and public."
+                            ),
                         )
                     with archive_path.open("wb") as out:
                         async for chunk in response.aiter_bytes(1024 * 1024):
@@ -256,7 +289,7 @@ async def import_project(
                                 raise HTTPException(status_code=413, detail="Archive exceeds 50 MB limit")
                             out.write(chunk)
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=404, detail=f"Could not reach GitHub: {exc}")
+            raise HTTPException(status_code=502, detail=f"Could not reach GitHub: {exc}")
         _safe_extract(archive_path, incoming)
     except (zipfile.BadZipFile, ValueError) as exc:
         shutil.rmtree(incoming, ignore_errors=True)
