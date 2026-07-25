@@ -44,8 +44,10 @@ export default function LoginPage() {
         <h2>{mode === "login" ? "Log in" : "Create an account"}</h2>
         <p>
           {mode === "login"
-            ? "Sign in to keep your own projects private."
-            : "Accounts are optional — the platform stays fully usable without one."}
+            ? "Sign in to see the projects private to your account."
+            : "Create an account to keep your projects private to you."}
+          {" "}Accounts are optional — without one, projects are shared with everyone
+          using this link.
         </p>
         <label>Username</label>
         <input

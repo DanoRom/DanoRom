@@ -34,7 +34,11 @@ export default function NavAuth() {
   if (!loaded) return null;
 
   if (!username) {
-    return <Link href="/login">Log in</Link>;
+    return (
+      <Link href="/login" title="Optional — create an account to keep your projects private">
+        Log in (optional)
+      </Link>
+    );
   }
 
   return (
