@@ -36,13 +36,6 @@ _migrate()
 
 app = FastAPI(title="Developer Platform API", version=settings.app_version)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 _limiter = SlidingWindowRateLimiter(settings.rate_limit_per_minute)
 _RATE_LIMIT_EXEMPT = {"/api/health", "/api/version"}
 
@@ -58,11 +51,16 @@ def _client_key(request: Request) -> str:
     )
 
 
+# Registered before CORSMiddleware so that CORS ends up the *outer* layer:
+# Starlette runs the most recently added middleware first, and a 429 returned
+# from here still has to pass back out through CORS to keep its headers.
+# Without them the browser hides the status and reports only "Failed to fetch".
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
     path = request.url.path
     if (
         settings.rate_limit_per_minute > 0
+        and request.method != "OPTIONS"  # never throttle CORS preflights
         and path.startswith("/api/")
         and path not in _RATE_LIMIT_EXEMPT
         and not _limiter.allow(_client_key(request))
@@ -72,6 +70,14 @@ async def rate_limit(request: Request, call_next):
             content={"detail": "Rate limit exceeded — slow down a moment and try again."},
         )
     return await call_next(request)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(auth.router)

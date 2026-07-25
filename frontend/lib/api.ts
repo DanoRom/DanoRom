@@ -131,6 +131,22 @@ export interface MeResult {
   username: string;
 }
 
+/** A failed `fetch` rejects with a bare "Failed to fetch", which hides whether the
+ *  backend is down or this page was built against a share tunnel that has since
+ *  closed (NEXT_PUBLIC_API_URL is inlined at build time). Name the URL either way. */
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(API_BASE);
+    throw new Error(
+      isLocal
+        ? `Can't reach the backend at ${API_BASE} — start it with \`python dev.py\` in the backend folder.`
+        : `Can't reach the backend at ${API_BASE}. That address is baked into this build, so if it was a share tunnel it has since closed. Stop the frontend, delete the .next folder, then run \`npm run dev\` again to go back to localhost:8000.`
+    );
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     if (res.status === 401) clearToken();
@@ -156,16 +172,16 @@ export const api = {
     if (params?.q) qs.set("q", params.q);
     if (params?.stage) qs.set("stage", params.stage);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return fetch(`${API_BASE}/api/projects${suffix}`, { headers: authHeaders() }).then((r) =>
+    return safeFetch(`${API_BASE}/api/projects${suffix}`, { headers: authHeaders() }).then((r) =>
       handle<Project[]>(r)
     );
   },
 
   getVersion: () =>
-    fetch(`${API_BASE}/api/version`).then((r) => handle<VersionInfo>(r)),
+    safeFetch(`${API_BASE}/api/version`).then((r) => handle<VersionInfo>(r)),
 
   createProject: (payload: { name: string; description: string; template: string }) =>
-    fetch(`${API_BASE}/api/projects`, {
+    safeFetch(`${API_BASE}/api/projects`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
@@ -175,7 +191,7 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     const params = name ? `?name=${encodeURIComponent(name)}` : "";
-    return fetch(`${API_BASE}/api/projects/upload${params}`, {
+    return safeFetch(`${API_BASE}/api/projects/upload${params}`, {
       method: "POST",
       headers: authHeaders(),
       body: form,
@@ -183,19 +199,19 @@ export const api = {
   },
 
   importProject: (url: string, name: string, token?: string) =>
-    fetch(`${API_BASE}/api/projects/import`, {
+    safeFetch(`${API_BASE}/api/projects/import`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ url, name, token: token || "" }),
     }).then((r) => handle<Project>(r)),
 
   getProject: (id: string | number) =>
-    fetch(`${API_BASE}/api/projects/${id}`, { headers: authHeaders() }).then((r) =>
+    safeFetch(`${API_BASE}/api/projects/${id}`, { headers: authHeaders() }).then((r) =>
       handle<ProjectDetail>(r)
     ),
 
   evaluateProject: (id: string | number) =>
-    fetch(`${API_BASE}/api/projects/${id}/evaluate`, {
+    safeFetch(`${API_BASE}/api/projects/${id}/evaluate`, {
       method: "POST",
       headers: authHeaders(),
     }).then((r) => handle<Evaluation>(r)),
@@ -203,7 +219,7 @@ export const api = {
   reuploadProject: (id: string | number, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return fetch(`${API_BASE}/api/projects/${id}/reupload`, {
+    return safeFetch(`${API_BASE}/api/projects/${id}/reupload`, {
       method: "POST",
       headers: authHeaders(),
       body: form,
@@ -211,28 +227,28 @@ export const api = {
   },
 
   choosePathway: (id: string | number, branchIndex: number) =>
-    fetch(`${API_BASE}/api/projects/${id}/pathway`, {
+    safeFetch(`${API_BASE}/api/projects/${id}/pathway`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ branch_index: branchIndex }),
     }).then((r) => handle<Evaluation>(r)),
 
   updateStep: (id: string | number, stepIndex: number, done: boolean) =>
-    fetch(`${API_BASE}/api/projects/${id}/pathway/steps`, {
+    safeFetch(`${API_BASE}/api/projects/${id}/pathway/steps`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ step_index: stepIndex, done }),
     }).then((r) => handle<Evaluation>(r)),
 
   coachStep: (id: string | number, branchIndex: number, stepIndex: number) =>
-    fetch(`${API_BASE}/api/projects/${id}/coach`, {
+    safeFetch(`${API_BASE}/api/projects/${id}/coach`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ branch_index: branchIndex, step_index: stepIndex }),
     }).then((r) => handle<CoachResult>(r)),
 
   deleteProject: (id: string | number) =>
-    fetch(`${API_BASE}/api/projects/${id}`, {
+    safeFetch(`${API_BASE}/api/projects/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => handle<void>(r)),
@@ -243,48 +259,48 @@ export const api = {
     ).then((r) => handle<LearningContent>(r)),
 
   listEvaluations: (id: string | number) =>
-    fetch(`${API_BASE}/api/projects/${id}/evaluations`, { headers: authHeaders() }).then((r) =>
+    safeFetch(`${API_BASE}/api/projects/${id}/evaluations`, { headers: authHeaders() }).then((r) =>
       handle<Evaluation[]>(r)
     ),
 
   getProjectTree: (id: string | number) =>
-    fetch(`${API_BASE}/api/projects/${id}/tree`, { headers: authHeaders() }).then((r) =>
+    safeFetch(`${API_BASE}/api/projects/${id}/tree`, { headers: authHeaders() }).then((r) =>
       handle<ProjectTree>(r)
     ),
 
   getStats: () =>
-    fetch(`${API_BASE}/api/stats`, { headers: authHeaders() }).then((r) => handle<Stats>(r)),
+    safeFetch(`${API_BASE}/api/stats`, { headers: authHeaders() }).then((r) => handle<Stats>(r)),
 
   getQuiz: (stage: string) =>
-    fetch(`${API_BASE}/api/learning/${stage}/quiz`).then((r) => handle<QuizOut>(r)),
+    safeFetch(`${API_BASE}/api/learning/${stage}/quiz`).then((r) => handle<QuizOut>(r)),
 
   submitQuiz: (stage: string, answers: number[]) =>
-    fetch(`${API_BASE}/api/learning/${stage}/quiz`, {
+    safeFetch(`${API_BASE}/api/learning/${stage}/quiz`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ answers }),
     }).then((r) => handle<QuizResult>(r)),
 
   register: (username: string, password: string) =>
-    fetch(`${API_BASE}/api/auth/register`, {
+    safeFetch(`${API_BASE}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     }).then((r) => handle<AuthResult>(r)),
 
   login: (username: string, password: string) =>
-    fetch(`${API_BASE}/api/auth/login`, {
+    safeFetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     }).then((r) => handle<AuthResult>(r)),
 
   logout: () =>
-    fetch(`${API_BASE}/api/auth/logout`, {
+    safeFetch(`${API_BASE}/api/auth/logout`, {
       method: "POST",
       headers: authHeaders(),
     }).then((r) => handle<void>(r)),
 
   me: () =>
-    fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() }).then((r) => handle<MeResult>(r)),
+    safeFetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() }).then((r) => handle<MeResult>(r)),
 };
