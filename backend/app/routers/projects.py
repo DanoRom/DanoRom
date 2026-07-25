@@ -40,6 +40,14 @@ GITHUB_HEADERS = {
     "Accept": "application/vnd.github+json",
 }
 
+
+def _github_headers(token: str | None) -> dict[str, str]:
+    """Base GitHub headers plus a bearer token when one is supplied (for private repos)."""
+    headers = dict(GITHUB_HEADERS)
+    if token and token.strip():
+        headers["Authorization"] = f"Bearer {token.strip()}"
+    return headers
+
 # Maps scanner boolean signals to the human-readable labels used in diff output.
 BOOLEAN_SIGNAL_LABELS = {
     "has_readme": "readme",
@@ -214,23 +222,33 @@ def _strip_github_wrapper(incoming: Path) -> None:
         inner.rmdir()
 
 
-async def _resolve_github_zip_url(client: httpx.AsyncClient, owner: str, repo: str, branch: str | None) -> str:
+async def _resolve_github_zip_url(
+    client: httpx.AsyncClient, owner: str, repo: str, branch: str | None, headers: dict[str, str]
+) -> str:
     """Returns the codeload .zip URL for the repo, resolving the real default
     branch when none was given. Raises HTTPException with a clear message."""
     if branch:
         return f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"
-    meta = await client.get(
-        f"https://api.github.com/repos/{owner}/{repo}", headers=GITHUB_HEADERS
-    )
-    if meta.status_code == 404:
+    meta = await client.get(f"https://api.github.com/repos/{owner}/{repo}", headers=headers)
+    authed = "Authorization" in headers
+    if meta.status_code == 401:
         raise HTTPException(
-            status_code=404,
-            detail=f"Repository {owner}/{repo} not found — check the URL, or note that private repos can't be imported.",
+            status_code=401,
+            detail="GitHub token is invalid or expired. Create a new token with 'repo' (or 'Contents: read') access.",
+        )
+    if meta.status_code == 404:
+        hint = (
+            "Check the URL and that the token has access to this repo."
+            if authed
+            else "Check the URL, or paste a GitHub token below to import a private repo."
+        )
+        raise HTTPException(
+            status_code=404, detail=f"Repository {owner}/{repo} not found — {hint}"
         )
     if meta.status_code in (403, 429):
         raise HTTPException(
             status_code=502,
-            detail="GitHub rate limit reached (unauthenticated imports are limited). Try again in a few minutes.",
+            detail="GitHub rate limit reached. Try again in a few minutes (or add a token to raise the limit).",
         )
     if meta.status_code != 200:
         raise HTTPException(
@@ -267,19 +285,20 @@ async def import_project(
     incoming.mkdir(parents=True)
     archive_path = incoming.with_suffix(".zip")
 
+    headers = _github_headers(payload.token)
     try:
         size = 0
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                download_url = await _resolve_github_zip_url(client, owner, repo, branch)
-                async with client.stream("GET", download_url, headers=GITHUB_HEADERS) as response:
+                download_url = await _resolve_github_zip_url(client, owner, repo, branch, headers)
+                async with client.stream("GET", download_url, headers=headers) as response:
                     if response.status_code != 200:
                         raise HTTPException(
                             status_code=404,
                             detail=(
                                 f"Could not download {owner}/{repo} "
                                 f"(archive request returned {response.status_code}). "
-                                "Check the repository and branch are correct and public."
+                                "Check the repository and branch exist and the token has access."
                             ),
                         )
                     with archive_path.open("wb") as out:

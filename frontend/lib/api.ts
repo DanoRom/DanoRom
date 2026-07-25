@@ -182,11 +182,11 @@ export const api = {
     }).then((r) => handle<Project>(r));
   },
 
-  importProject: (url: string, name: string) =>
+  importProject: (url: string, name: string, token?: string) =>
     fetch(`${API_BASE}/api/projects/import`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ url, name }),
+      body: JSON.stringify({ url, name, token: token || "" }),
     }).then((r) => handle<Project>(r)),
 
   getProject: (id: string | number) =>

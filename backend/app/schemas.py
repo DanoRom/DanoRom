@@ -12,6 +12,7 @@ class ProjectCreate(BaseModel):
 class ProjectImport(BaseModel):
     url: str
     name: str = ""
+    token: str = ""  # optional GitHub PAT for importing private repos; never stored
 
 
 class PathwayStep(BaseModel):

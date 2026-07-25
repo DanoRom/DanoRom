@@ -207,6 +207,7 @@ function StartProjectCard({ onCreated }: { onCreated: () => void }) {
 function AddProjectCard({ onCreated }: { onCreated: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [githubUrl, setGithubUrl] = useState("");
+  const [token, setToken] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -219,8 +220,9 @@ function AddProjectCard({ onCreated }: { onCreated: () => void }) {
     setBusy(true);
     setError("");
     try {
-      await api.importProject(githubUrl, name);
+      await api.importProject(githubUrl, name, token);
       setGithubUrl("");
+      setToken("");
       setName("");
       onCreated();
     } catch (e) {
@@ -262,6 +264,26 @@ function AddProjectCard({ onCreated }: { onCreated: () => void }) {
         onChange={(e) => setGithubUrl(e.target.value)}
         placeholder="https://github.com/owner/repo"
       />
+      <label>GitHub token (only for private repos)</label>
+      <input
+        type="password"
+        value={token}
+        onChange={(e) => setToken(e.target.value)}
+        placeholder="ghp_… — leave blank for public repos"
+        autoComplete="off"
+      />
+      <p className="muted" style={{ fontSize: "0.75rem", marginTop: "-0.4rem", marginBottom: "0.85rem" }}>
+        Private repo? Create a free{" "}
+        <a
+          href="https://github.com/settings/tokens/new?scopes=repo&description=Developer%20Platform%20import"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "underline" }}
+        >
+          read-only token
+        </a>{" "}
+        and paste it here. It's used once for this import and never saved.
+      </p>
       <button
         className="cta"
         onClick={submitImport}
