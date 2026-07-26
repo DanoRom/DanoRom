@@ -80,6 +80,24 @@ two days and a week.
 
 ## Runbook
 
+### First: confirm you are on the right machine
+
+```bash
+python3 dr.py whoami
+```
+
+Prints the hostname, OS and every drive with its size. Check those sizes against
+the machine you *think* you are on. Then pin every later command to it:
+
+```bash
+python3 dr.py auto D:/ E:/ --expect-host BLACKMAMBA --report-only
+```
+
+`--expect-host` exits non-zero rather than running on the wrong computer. The
+catalog also binds itself to the machine that created it, so carrying
+`driveshift.db` to a laptop makes every destructive command refuse unless you
+pass `--rebind` on purpose.
+
 ### One command
 
 ```bash
@@ -188,6 +206,9 @@ Nothing is deleted by accident, and deletion is always the *last* step:
 6. A rules file containing a `JUNK` rule with no constraints is rejected outright
    rather than loaded — such a rule would match every file on the drive.
 7. `push` aborts the whole run on the first MD5 mismatch rather than continuing.
+8. The catalog is bound to the machine that created it. `scan`, `push` and
+   `reclaim` refuse to run on any other computer, so the tool cannot be pointed
+   at the wrong machine by accident. `--expect-host` adds a hostname check on top.
 
 The catalog is a single SQLite file. `backup-index` copies it and a CSV of every
 uploaded file to Drive, so the index survives wiping the machine.

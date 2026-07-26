@@ -5,6 +5,39 @@ drives**. It is written as instructions to that agent.
 
 ---
 
+## STOP — confirm which machine you are on
+
+Dano has a **desktop PC** (the target), a **laptop**, and a **phone**. This
+migration must run on the PC and nowhere else. Running it on the laptop would
+scan the laptop's drives, upload the laptop's files, and delete them.
+
+Before anything else:
+
+```bash
+python3 dr.py whoami
+```
+
+It prints the hostname, OS, and every drive with its size. **Check the drive
+sizes against what Dano described: roughly 1.5 TB plus an SSD.** If you see a
+single 512 GB volume, you are on the laptop — stop and tell him.
+
+Then note the hostname and pass it to every subsequent command:
+
+```bash
+python3 dr.py auto D:/ E:/ --expect-host <that-hostname> --report-only
+```
+
+`--expect-host` makes `dr` exit non-zero rather than run on a machine whose
+hostname doesn't match. Use it on every invocation from here on.
+
+There is a second, automatic guard: the catalog binds itself to the machine that
+created it on first scan. Copy `driveshift.db` to another computer and every
+destructive command refuses to run unless you pass `--rebind` explicitly. You
+should never need `--rebind` for this job — if it demands one, you are on the
+wrong machine.
+
+---
+
 ## The job
 
 Dano has a desktop PC (not his laptop) holding roughly **1.5 TB**. He wants it

@@ -172,6 +172,155 @@ def normpath(p: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# machine binding
+#
+# The catalog is bound to the machine that created it. Carry driveshift.db to a
+# different box - a laptop, say - and every destructive command refuses to run.
+# This is the guard against pointing the tool at the wrong computer.
+# --------------------------------------------------------------------------- #
+
+def machine_fingerprint() -> dict:
+    import platform
+    import socket
+    import uuid
+
+    stable = ""
+    for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            stable = Path(candidate).read_text().strip()
+            break
+        except OSError:
+            continue
+    if not stable and sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SOFTWARE\Microsoft\Cryptography") as k:
+                stable = winreg.QueryValueEx(k, "MachineGuid")[0]
+        except Exception:
+            pass
+    if not stable:
+        stable = f"mac-{uuid.getnode():012x}"
+
+    host = socket.gethostname()
+    ident = hashlib.blake2b(
+        f"{host}|{platform.system()}|{stable}".encode(), digest_size=8).hexdigest()
+    return {
+        "host": host,
+        "system": platform.system(),
+        "release": platform.release(),
+        "arch": platform.machine(),
+        "id": ident,
+    }
+
+
+def local_drives() -> list:
+    """Mounted volumes with their sizes - the quickest way for a human to confirm
+    'yes, this is the 1.5 TB box and not my laptop'."""
+    out = []
+    if sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            root = f"{letter}:\\"
+            if os.path.exists(root):
+                try:
+                    u = shutil.disk_usage(root)
+                    out.append((root, u.total, u.free))
+                except OSError:
+                    continue
+    else:
+        seen = set()
+        for mp in ("/", "/home", "/mnt", "/media", "/srv", "/data"):
+            if not os.path.isdir(mp):
+                continue
+            for p in ([mp] if mp in ("/", "/home", "/srv", "/data")
+                      else [os.path.join(mp, d) for d in os.listdir(mp)]):
+                try:
+                    u = shutil.disk_usage(p)
+                except OSError:
+                    continue
+                if u.total in seen:
+                    continue
+                seen.add(u.total)
+                out.append((p, u.total, u.free))
+    return out
+
+
+def enforce_binding(db, args, destructive: bool) -> None:
+    """Bind the catalog to this machine on first use; refuse to act on any other.
+    Raises SystemExit rather than returning, so no caller can ignore it."""
+    fp = machine_fingerprint()
+    bound_id = meta_get(db, "bound_id")
+    bound_host = meta_get(db, "bound_host")
+
+    expect = getattr(args, "expect_host", None)
+    if expect and expect.lower() != fp["host"].lower():
+        raise SystemExit(
+            f"\nREFUSING TO RUN.\n"
+            f"  --expect-host says {expect!r}\n"
+            f"  this machine is  {fp['host']!r}\n"
+            f"You are on the wrong computer.\n")
+
+    if bound_id is None:
+        meta_set(db, "bound_id", fp["id"])
+        meta_set(db, "bound_host", fp["host"])
+        meta_set(db, "bound_system", fp["system"])
+        db.commit()
+        say(f"catalog bound to this machine: {fp['host']} ({fp['system']}, id {fp['id']})")
+        return
+
+    if bound_id != fp["id"]:
+        msg = (f"\nREFUSING TO RUN.\n"
+               f"  this catalog belongs to : {bound_host} (id {bound_id})\n"
+               f"  you are running on      : {fp['host']} (id {fp['id']})\n\n"
+               f"driveshift.db was created on a different computer. If you copied it\n"
+               f"here by mistake, delete it and start with a fresh scan. If you really\n"
+               f"do mean to migrate THIS machine, re-run with --rebind.\n")
+        if destructive and not getattr(args, "rebind", False):
+            raise SystemExit(msg)
+        if not getattr(args, "rebind", False):
+            raise SystemExit(msg)
+        meta_set(db, "bound_id", fp["id"])
+        meta_set(db, "bound_host", fp["host"])
+        db.commit()
+        warn(f"rebound catalog to {fp['host']}")
+
+
+def cmd_whoami(args) -> int:
+    fp = machine_fingerprint()
+    say("")
+    say("  THIS MACHINE")
+    say(f"    hostname   {fp['host']}")
+    say(f"    os         {fp['system']} {fp['release']} ({fp['arch']})")
+    say(f"    id         {fp['id']}")
+    say("")
+    say("  DRIVES")
+    total = 0
+    for mount, size, free in local_drives():
+        total += size
+        say(f"    {mount:<12} {human(size):>10} total  {human(free):>10} free")
+    say(f"    {'TOTAL':<12} {human(total):>10}")
+    say("")
+
+    db_path = Path(args.db)
+    if db_path.exists():
+        db = open_db(db_path)
+        bound = meta_get(db, "bound_host")
+        bid = meta_get(db, "bound_id")
+        if bound:
+            match = "MATCH" if bid == fp["id"] else "*** MISMATCH ***"
+            say(f"  catalog is bound to: {bound} (id {bid})  ->  {match}")
+            if bid != fp["id"]:
+                say("  destructive commands will refuse to run on this machine.")
+    else:
+        say("  no catalog yet; the first scan binds one to this machine.")
+    say("")
+    say("  Is this the PC with the 1.5 TB, and not the laptop? If the drive")
+    say("  sizes above don't look right, stop here.")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # rules
 # --------------------------------------------------------------------------- #
 
@@ -382,6 +531,7 @@ def dir_size(path: str, cap_entries=2_000_000) -> tuple:
 
 def cmd_scan(args) -> int:
     db = open_db(Path(args.db))
+    enforce_binding(db, args, destructive=False)
     rules, _ = load_rules(Path(args.rules))
     prune_rules = [r for r in rules if r.prune]
     skip_rules = [r for r in rules if r.tier == "SKIP"]
@@ -776,8 +926,17 @@ def cmd_report(args) -> int:
 
 def cmd_auto(args) -> int:
     """Everything, unattended. This is the paste-and-walk-away command."""
+    db = open_db(Path(args.db))
+    enforce_binding(db, args, destructive=True)
+    db.close()
+
+    guard = []
+    if args.expect_host:
+        guard = ["--expect-host", args.expect_host]
+
     steps = [
-        ("scan", ["--db", args.db, "scan", *args.root] + (["--reset"] if args.reset else [])),
+        ("scan", ["--db", args.db, "scan", *args.root, *guard]
+                 + (["--reset"] if args.reset else [])),
         ("classify", ["--db", args.db, "classify", "--reclassify"]),
         ("dedupe", ["--db", args.db, "dedupe", "--jobs", str(args.jobs)]),
         ("report", ["--db", args.db, "report", "--upstream-mbit", str(args.upstream_mbit),
@@ -800,13 +959,13 @@ def cmd_auto(args) -> int:
     say("\n" + "=" * 72)
     say("  reclaiming junk (no upload needed)")
     say("=" * 72)
-    main(["--db", args.db, "reclaim", "--no-dupes", "--no-archived", "--yes"])
+    main(["--db", args.db, "reclaim", "--no-dupes", "--no-archived", "--yes", *guard])
 
     say("\n" + "=" * 72)
     say("  uploading")
     say("=" * 72)
     rc = main(["--db", args.db, "push", "--remote", args.remote, "--stage", args.stage,
-               "--reclaim", "--transfers", str(args.transfers)])
+               "--reclaim", "--transfers", str(args.transfers), *guard])
     main(["--db", args.db, "backup-index", "--remote", args.remote])
     return rc
 
@@ -904,6 +1063,7 @@ def is_quota_error(msg: str) -> bool:
 
 def cmd_push(args) -> int:
     db = open_db(Path(args.db))
+    enforce_binding(db, args, destructive=True)
     stage = Path(args.stage).resolve()
     stage.mkdir(parents=True, exist_ok=True)
     remote_prefix = args.remote.rstrip("/")
@@ -1168,6 +1328,7 @@ def reclaim_bundle(db, bundle: str, dry: bool) -> int:
 
 def cmd_reclaim(args) -> int:
     db = open_db(Path(args.db))
+    enforce_binding(db, args, destructive=True)
     dry = args.dry_run
     say("reclaim: nothing is touched unless it is JUNK, a verified duplicate, "
         "or verified on Drive.\n")
@@ -1400,6 +1561,11 @@ def main(argv=None) -> int:
     s.add_argument("root", nargs="+")
     s.add_argument("--rules", default=str(DEFAULT_RULES))
     s.add_argument("--reset", action="store_true", help="wipe the catalog first")
+    s.add_argument("--expect-host", default=None,
+                   help="refuse to run unless the hostname matches. Use this to "
+                        "guarantee you are on the PC and not the laptop")
+    s.add_argument("--rebind", action="store_true",
+                   help="allow a catalog created on another machine to be reused here")
     s.set_defaults(fn=cmd_scan)
 
     s = sub.add_parser("classify", help="apply rules -> tiers")
@@ -1429,6 +1595,11 @@ def main(argv=None) -> int:
     s.add_argument("--reset", action="store_true")
     s.add_argument("--report-only", action="store_true",
                    help="stop after the report; delete and upload nothing")
+    s.add_argument("--expect-host", default=None,
+                   help="refuse to run unless the hostname matches. Use this to "
+                        "guarantee you are on the PC and not the laptop")
+    s.add_argument("--rebind", action="store_true",
+                   help="allow a catalog created on another machine to be reused here")
     s.set_defaults(fn=cmd_auto)
 
     s = sub.add_parser("plan", help="show the move before doing it")
@@ -1454,6 +1625,11 @@ def main(argv=None) -> int:
     s.add_argument("--chunk", default="256M",
                    help="upload chunk size; RAM cost is chunk x transfers")
     s.add_argument("--dry-run", action="store_true")
+    s.add_argument("--expect-host", default=None,
+                   help="refuse to run unless the hostname matches. Use this to "
+                        "guarantee you are on the PC and not the laptop")
+    s.add_argument("--rebind", action="store_true",
+                   help="allow a catalog created on another machine to be reused here")
     s.set_defaults(fn=cmd_push)
 
     s = sub.add_parser("reclaim", help="move already-safe local files to the Recycle Bin")
@@ -1464,7 +1640,15 @@ def main(argv=None) -> int:
     s.add_argument("--archived", action="store_true", default=True)
     s.add_argument("--no-archived", dest="archived", action="store_false")
     s.add_argument("--yes", dest="dry_run", action="store_false", default=True)
+    s.add_argument("--expect-host", default=None,
+                   help="refuse to run unless the hostname matches. Use this to "
+                        "guarantee you are on the PC and not the laptop")
+    s.add_argument("--rebind", action="store_true",
+                   help="allow a catalog created on another machine to be reused here")
     s.set_defaults(fn=cmd_reclaim)
+
+    s = sub.add_parser("whoami", help="which machine is this, and what drives does it have")
+    s.set_defaults(fn=cmd_whoami)
 
     s = sub.add_parser("status", help="progress dashboard")
     s.set_defaults(fn=cmd_status)
