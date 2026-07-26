@@ -1,0 +1,40 @@
+# Read-only mount of "Black Mamba - Home-Server-Cloud" at /srv/archive.
+#
+#   sudo cp rclone-archive.service /etc/systemd/system/
+#   sudo systemctl enable --now rclone-archive
+#
+# Read-only on purpose: nothing running on this box can delete the archive,
+# and an accidental rm -rf cannot propagate to Drive.
+
+[Unit]
+Description=rclone mount - Black Mamba archive (read-only)
+After=network-online.target
+Wants=network-online.target
+AssertPathIsDirectory=/srv/archive
+
+[Service]
+Type=notify
+User=%i
+Environment=RCLONE_CONFIG=/etc/rclone/rclone.conf
+
+ExecStart=/usr/bin/rclone mount blackmamba: /srv/archive \
+    --read-only \
+    --allow-other \
+    --dir-cache-time 72h \
+    --vfs-cache-mode full \
+    --vfs-cache-max-size 50G \
+    --vfs-cache-max-age 168h \
+    --vfs-read-chunk-size 32M \
+    --vfs-read-chunk-size-limit 512M \
+    --buffer-size 64M \
+    --poll-interval 15m \
+    --tpslimit 10 \
+    --umask 022 \
+    --log-level INFO
+
+ExecStop=/bin/fusermount -uz /srv/archive
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

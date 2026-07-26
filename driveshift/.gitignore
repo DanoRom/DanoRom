@@ -1,0 +1,11 @@
+# Runtime state, never committed.
+driveshift.db
+driveshift.db-*
+*.catalog.csv
+stage/
+restored/
+__pycache__/
+
+# Contains OAuth tokens.
+rclone.conf
+.env
