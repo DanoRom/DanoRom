@@ -33,12 +33,20 @@ Four levers, in the order they pay off:
 
 - **Drive:** 916 GB used of 5 TB → **4.08 TB free**. 1.5 TB fits with room to spare.
 - **Google's hard ceiling:** 750 GB uploaded per account per rolling 24 hours.
-  1.5 TB is therefore a **~2.1 day minimum**, no matter how fast your connection is.
-- **To saturate that cap you need ~70 Mbit/s sustained upstream.** Below that,
-  your line is the bottleneck, not Google. At 40 Mbit/s, 1.5 TB is about 3.5 days.
+  1.5 TB is therefore a **~2 day minimum**, no matter how fast your connection is.
+- **On a gigabit line you are cap-bound, not bandwidth-bound.** Saturating the
+  daily cap needs only ~70 Mbit/s sustained. You have roughly 14x that. In
+  practice Drive gives 300-500 Mbit/s with 8 parallel transfers, so a full
+  750 GB day is **4-6 hours of actual transfer**, then ~18 hours of waiting for
+  the rolling window. Total elapsed ~2 days; total transfer time ~8-10 hours.
+- **Check your *upload* speed specifically.** Consumer "1 Giga" plans are usually
+  asymmetric — 1000 down, 50-100 up is common. If upload is 100 Mbit/s, a
+  750 GB day takes ~17 hours and you become bandwidth-bound again.
+  `fast.com/#upload` or `speedtest.net` will tell you in 30 seconds.
+- CAT5e is not a concern: it carries gigabit to 100 m.
 - Realistically you will not upload 1.5 TB. After junk and dedupe, expect
-  **600 GB - 1 TB** actually crossing the wire. `dr plan` tells you the real number
-  before you commit to anything.
+  **600 GB - 1 TB** actually crossing the wire. `dr report` tells you the real
+  number before you commit to anything.
 
 Nothing here needs babysitting. The transfer is resumable, it pauses itself at
 the daily cap and resumes when the window rolls, and you can kill it at any point
@@ -72,12 +80,24 @@ two days and a week.
 
 ## Runbook
 
+### One command
+
+```bash
+python3 dr.py auto D:/ E:/ --report-only     # facts first, touches nothing
+python3 dr.py auto D:/ E:/                   # then the whole job, unattended
+```
+
+`auto` runs scan → classify → dedupe → report → reclaim junk → upload → verify →
+reclaim, and writes `report.txt`. Safe to leave running; safe to kill and re-run.
+
+### Or step by step
+
 ```bash
 python3 dr.py doctor                        # rclone, remote, quota, free space
 python3 dr.py scan D:/ E:/                  # index the drives (minutes, not hours)
 python3 dr.py classify                      # tier everything via rules.json
-python3 dr.py dedupe                        # find byte-identical copies
-python3 dr.py plan --upstream-mbit 100      # what moves, how long, what it frees
+python3 dr.py dedupe --jobs 12              # 12+ threads on SSD, 2 on spinning disk
+python3 dr.py report --upstream-mbit 1000   # real data vs copies vs junk
 ```
 
 Stop there and read the plan. It is the only output that matters before anything
@@ -106,7 +126,17 @@ Useful flags:
 --no-wait              exit at the daily cap instead of sleeping until it lifts
 --compress gz          worth it for documents and source; pointless for media
 --daily-cap-gb 500     leave headroom if you use the same account elsewhere
+--transfers 8          parallel uploads. 8 suits gigabit; past 8 Drive gets slower
+--chunk 256M           RAM cost is chunk x transfers, so 256M x 8 = 2 GB
 ```
+
+### SSD vs HDD
+
+Put `--stage` on the **SSD** — packing writes a 4 GB tarball per bundle and the
+SSD makes that free. Dedupe hashing is the other SSD-sensitive step: `--jobs 12`
+is a large win on flash and a large *loss* on a spinning disk, where concurrent
+reads turn into seek thrash. Match the flag to where the files actually live, not
+to where the tool is installed.
 
 Afterwards, the catalog is still searchable and files are retrievable:
 
@@ -131,9 +161,12 @@ through to `ARCHIVE`.
 
 Two rules exist purely as safety rails and you should not remove them:
 
-- **`cloud-synced-already`** skips OneDrive/Dropbox/iCloud folders. Deleting a
-  file from one of those locally deletes it *from that cloud too*. This is the
-  single most common way people lose data during a migration.
+- **`cloud-services-evacuate`** puts OneDrive/iCloud/Dropbox into `ARCHIVE`, so
+  their contents are copied into Black Mamba and MD5-verified *before* the local
+  folder is removed. Read [`docs/CLOUD-EVICTION.md`](docs/CLOUD-EVICTION.md)
+  first — online-only placeholder files are 0 bytes on disk and will archive as
+  empty stubs unless you force a full download, and a local delete propagates
+  upstream while the client is still linked.
 - **`credentials-and-keys`** forces SSH keys, GPG keys, cloud credentials and
   password databases into `SYNC` so they are never bulk-deleted. Review them by
   hand before anything leaves the machine.
@@ -182,6 +215,7 @@ dr.py               the whole tool, stdlib only, no install step
 rules.json          the classification rules; this is the file you tune
 bootstrap.sh/.ps1   rclone install + Google authorisation
 docs/RCLONE.md      own API credentials, tuning flags, the 750 GB/day cap
+docs/CLOUD-EVICTION.md  removing OneDrive/iCloud/Dropbox without losing files
 docs/HOMESERVER.md  what the PC becomes once the drives are empty
 server/             compose stack + rclone mount unit for the rebuilt server
 ```

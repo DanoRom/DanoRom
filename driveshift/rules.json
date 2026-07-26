@@ -23,12 +23,31 @@
 
   "rules": [
 
-    { "name": "cloud-synced-already",
+    { "name": "cloud-services-evacuate",
+      "tier": "ARCHIVE",
+      "_why": "You want OneDrive/iCloud/Dropbox gone. ARCHIVE, not JUNK: the",
+      "_why2": "contents get copied into Black Mamba and MD5-verified first, then",
+      "_why3": "the local folder is reclaimed. Same end state, nothing lost.",
+      "_danger": "Read docs/CLOUD-EVICTION.md before running this. Two traps:",
+      "_danger2": "(1) these folders sync, so a local delete propagates upstream;",
+      "_danger3": "(2) online-only placeholder files are 0 bytes on disk and will",
+      "_danger4": "archive as empty unless you force a full download first.",
+      "glob": ["*/onedrive*/*", "*/dropbox/*",
+               "*/icloud drive/*", "*/icloudphotos/*", "*/icloud photos/*",
+               "*/mega/*", "*/pcloudrive/*", "*/box sync/*"] },
+
+    { "name": "cloud-client-caches",
+      "tier": "JUNK", "prune": true,
+      "_why": "Sync-client scratch space. Pure junk, no upload needed.",
+      "glob": ["*/.dropbox.cache/*", "*/.dropbox.dist/*",
+               "*/onedrivetemp/*", "*/appdata/local/microsoft/onedrive/setup/*",
+               "*/appdata/roaming/apple computer/mobilesync/*",
+               "*/appdata/local/apple/*/cache/*"] },
+
+    { "name": "destination-folder",
       "tier": "SKIP",
-      "_why": "SAFETY. These folders mirror a cloud. Deleting locally deletes upstream.",
-      "glob": ["*/onedrive*/*", "*/dropbox/*", "*/.dropbox.cache/*",
-               "*/google drive/*", "*/googledrive/*", "*/my drive/*",
-               "*/icloud drive/*", "*/mega/*", "*/pcloudrive/*", "*/box sync/*",
+      "_why": "Never re-upload the staging/mirror of Black Mamba itself.",
+      "glob": ["*/google drive/*", "*/googledrive/*", "*/my drive/*",
                "*/black mamba - home-server-cloud/*"] },
 
     { "name": "windows-pagefiles",

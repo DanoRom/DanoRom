@@ -249,19 +249,23 @@ def load_rules(path: Path) -> tuple:
 # rclone
 # --------------------------------------------------------------------------- #
 
-RCLONE_TUNING = [
-    "--drive-chunk-size", "128M",
-    "--transfers", "4",
-    "--checkers", "16",
-    "--drive-pacer-min-sleep", "10ms",
-    "--drive-pacer-burst", "200",
-    "--tpslimit", "10",
-    "--drive-stop-on-upload-limit",   # exit cleanly at the 750GB/day wall
-    "--retries", "3",
-    "--low-level-retries", "10",
-    "--stats", "30s",
-    "--stats-one-line",
-]
+def rclone_tuning(transfers: int = 8, chunk: str = "256M") -> list:
+    """Defaults are tuned for a gigabit line. On Drive, more transfers is not
+    monotonically better - past ~8 you trip per-user rate limits and throughput
+    goes backwards. RAM cost is chunk x transfers, so 256M x 8 = 2 GB."""
+    return [
+        "--drive-chunk-size", chunk,
+        "--transfers", str(transfers),
+        "--checkers", str(max(8, transfers * 2)),
+        "--drive-pacer-min-sleep", "10ms",
+        "--drive-pacer-burst", "200",
+        "--tpslimit", "12",
+        "--drive-stop-on-upload-limit",   # exit cleanly at the 750GB/day wall
+        "--retries", "3",
+        "--low-level-retries", "10",
+        "--stats", "30s",
+        "--stats-one-line",
+    ]
 
 
 def rclone(args: list, capture=True, timeout=None, extra_env=None) -> subprocess.CompletedProcess:
@@ -532,60 +536,87 @@ def full_hash(path: str, chunk=4 * MiB) -> str:
 
 
 def cmd_dedupe(args) -> int:
+    from concurrent.futures import ThreadPoolExecutor
+
     db = open_db(Path(args.db))
     min_size = args.min_size
+    # Hashing is I/O bound and releases the GIL. On an SSD, 8-16 threads is a
+    # large win; on a spinning disk it is a large loss, because seeking between
+    # concurrent reads destroys throughput. Hence the flag.
+    jobs = args.jobs
+    say(f"hashing with {jobs} threads (use --jobs 2 if these files live on a spinning disk)")
 
-    groups = db.execute(
-        "SELECT size FROM entries WHERE kind='file' AND tier IN ('ARCHIVE','SYNC') "
-        "AND size >= ? AND dup_of IS NULL GROUP BY size HAVING COUNT(*) > 1",
-        (min_size,)).fetchall()
-    say(f"{len(groups):,} size-groups with possible duplicates (>= {human(min_size)})")
+    t0 = time.time()
+    rows = db.execute(
+        "SELECT id,path,size FROM entries WHERE kind='file' "
+        "AND tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL AND size >= ? "
+        "AND size IN (SELECT size FROM entries WHERE kind='file' "
+        "  AND tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL AND size >= ? "
+        "  GROUP BY size HAVING COUNT(*) > 1)",
+        (min_size, min_size)).fetchall()
+    say(f"{len(rows):,} files share a size with another file (>= {human(min_size)})")
 
-    candidates = 0
-    for g in groups:
-        rows = db.execute(
-            "SELECT id,path,size FROM entries WHERE size=? AND kind='file' "
-            "AND tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL", (g["size"],)).fetchall()
-        for r in rows:
-            try:
-                q = quick_hash(r["path"], r["size"])
-            except OSError:
-                continue
-            db.execute("UPDATE entries SET quick=? WHERE id=?", (q, r["id"]))
-            candidates += 1
-        db.commit()
-    say(f"quick-hashed {candidates:,} candidates")
+    def q(r):
+        try:
+            return r["id"], quick_hash(r["path"], r["size"])
+        except OSError:
+            return r["id"], None
 
-    dup_bytes, dup_count = 0, 0
-    qgroups = db.execute(
-        "SELECT quick FROM entries WHERE quick IS NOT NULL AND dup_of IS NULL "
-        "GROUP BY quick HAVING COUNT(*) > 1").fetchall()
+    done = 0
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        for eid, h in pool.map(q, rows):
+            if h:
+                db.execute("UPDATE entries SET quick=? WHERE id=?", (h, eid))
+            done += 1
+            if done % 5000 == 0:
+                db.commit()
+                say(f"  quick-hashed {done:,}/{len(rows):,}")
+    db.commit()
 
-    for qg in qgroups:
-        rows = db.execute(
-            "SELECT id,path,size,mtime FROM entries WHERE quick=? AND dup_of IS NULL "
-            "ORDER BY mtime ASC, LENGTH(path) ASC", (qg["quick"],)).fetchall()
-        hashed = []
-        for r in rows:
-            try:
-                hashed.append((r, full_hash(r["path"])))
-            except OSError:
-                continue
-        by_hash = {}
-        for r, h in hashed:
-            db.execute("UPDATE entries SET full=? WHERE id=?", (h, r["id"]))
+    # Only files whose cheap head+tail hash collides need to be read in full.
+    cand = db.execute(
+        "SELECT id,path,size,mtime,quick FROM entries WHERE quick IS NOT NULL "
+        "AND dup_of IS NULL AND quick IN (SELECT quick FROM entries "
+        "  WHERE quick IS NOT NULL AND dup_of IS NULL "
+        "  GROUP BY quick HAVING COUNT(*) > 1) ORDER BY quick").fetchall()
+    say(f"{len(cand):,} need a full-content read to confirm")
+
+    def f(r):
+        try:
+            return r["id"], full_hash(r["path"])
+        except OSError:
+            return r["id"], None
+
+    full_by_id = {}
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        for eid, h in pool.map(f, cand):
+            if h:
+                full_by_id[eid] = h
+                db.execute("UPDATE entries SET full=? WHERE id=?", (h, eid))
+    db.commit()
+
+    # Keep the oldest copy, then the one with the shortest path. Oldest wins
+    # because it is usually the original rather than a "copy (2)".
+    by_hash = {}
+    for r in cand:
+        h = full_by_id.get(r["id"])
+        if h:
             by_hash.setdefault(h, []).append(r)
-        for h, members in by_hash.items():
-            if len(members) < 2:
-                continue
-            keeper = members[0]
-            for m in members[1:]:
-                db.execute("UPDATE entries SET dup_of=? WHERE id=?", (keeper["id"], m["id"]))
-                dup_bytes += m["size"]
-                dup_count += 1
-        db.commit()
+
+    dup_bytes = dup_count = 0
+    for h, members in by_hash.items():
+        if len(members) < 2:
+            continue
+        members.sort(key=lambda r: (r["mtime"], len(r["path"])))
+        keeper = members[0]
+        for m in members[1:]:
+            db.execute("UPDATE entries SET dup_of=? WHERE id=?", (keeper["id"], m["id"]))
+            dup_bytes += m["size"]
+            dup_count += 1
+    db.commit()
 
     say(f"\n{dup_count:,} duplicate files -> {human(dup_bytes)} that never has to be uploaded")
+    say(f"({duration(time.time() - t0)} elapsed)")
     say("duplicates are reclaimed locally only after their canonical copy is verified on Drive")
     return 0
 
@@ -647,6 +678,137 @@ def cmd_plan(args) -> int:
     for r in rows:
         say(f"    {human(r['size']):>10}  {r['tier']:<8} {r['path']}")
     return 0
+
+
+def cmd_report(args) -> int:
+    """The fact sheet: what is real, what is a copy, what is disposable."""
+    db = open_db(Path(args.db))
+    out = []
+
+    def w(line=""):
+        out.append(line)
+        say(line)
+
+    def agg(sql, params=()):
+        r = db.execute(sql, params).fetchone()
+        return int(r["n"] or 0), int(r["b"] or 0)
+
+    tot_n, tot_b = agg("SELECT COUNT(*) n, SUM(size) b FROM entries")
+    w("=" * 72)
+    w("  WHAT IS ACTUALLY ON THESE DRIVES")
+    w("=" * 72)
+    w(f"  indexed {tot_n:,} entries, {human(tot_b)} total")
+    w()
+
+    w("  by tier")
+    for r in db.execute("SELECT tier, COUNT(*) n, SUM(size) b FROM entries "
+                        "GROUP BY tier ORDER BY b DESC"):
+        pct = 100 * (r["b"] or 0) / tot_b if tot_b else 0
+        w(f"    {r['tier'] or '-':<9} {r['n']:>10,}  {human(r['b'] or 0):>11}  {pct:5.1f}%")
+
+    w()
+    w("  disposable without uploading anything")
+    for r in db.execute("SELECT rule, COUNT(*) n, SUM(size) b FROM entries "
+                        "WHERE tier='JUNK' GROUP BY rule ORDER BY b DESC"):
+        w(f"    {r['rule']:<26} {r['n']:>10,}  {human(r['b'] or 0):>11}")
+    junk_n, junk_b = agg("SELECT COUNT(*) n, SUM(size) b FROM entries WHERE tier='JUNK'")
+    w(f"    {'TOTAL':<26} {junk_n:>10,}  {human(junk_b):>11}")
+
+    w()
+    w("  duplicates (identical bytes, uploaded once)")
+    dup_n, dup_b = agg("SELECT COUNT(*) n, SUM(size) b FROM entries WHERE dup_of IS NOT NULL")
+    w(f"    {'redundant copies':<26} {dup_n:>10,}  {human(dup_b):>11}")
+    w()
+    w("    worst offenders:")
+    for r in db.execute("""
+            SELECT k.path AS keep, COUNT(*) n, SUM(d.size) b
+            FROM entries d JOIN entries k ON k.id = d.dup_of
+            GROUP BY d.dup_of ORDER BY b DESC LIMIT 10"""):
+        w(f"      {human(r['b']):>10}  x{r['n']}  {r['keep']}")
+
+    w()
+    w("  must actually move")
+    up_n, up_b = agg("SELECT COUNT(*) n, SUM(size) b FROM entries "
+                     "WHERE tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL AND kind='file'")
+    small_n, small_b = agg("SELECT COUNT(*) n, SUM(size) b FROM entries "
+                           "WHERE tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL "
+                           "AND kind='file' AND size < ?", (PACK_THRESHOLD,))
+    w(f"    {'real payload':<26} {up_n:>10,}  {human(up_b):>11}")
+    w(f"    {'  small, will be packed':<26} {small_n:>10,}  {human(small_b):>11}")
+    w(f"    {'  large, sent as-is':<26} {up_n - small_n:>10,}  {human(up_b - small_b):>11}")
+
+    w()
+    w("  by file type (payload only)")
+    for r in db.execute("""
+            SELECT CASE WHEN INSTR(norm, '.') > 0
+                   THEN LOWER(REPLACE(norm, RTRIM(norm, REPLACE(norm,'.','')), ''))
+                   ELSE '(none)' END AS ext,
+                   COUNT(*) n, SUM(size) b FROM entries
+            WHERE tier IN ('ARCHIVE','SYNC') AND dup_of IS NULL AND kind='file'
+            GROUP BY ext ORDER BY b DESC LIMIT 12"""):
+        w(f"    {(r['ext'] or '?')[:24]:<26} {r['n']:>10,}  {human(r['b'] or 0):>11}")
+
+    w()
+    w("=" * 72)
+    w(f"  reclaimed locally    {human(junk_b + dup_b):>12}   (junk + duplicates, no upload)")
+    w(f"  crosses the wire     {human(up_b):>12}")
+    if tot_b:
+        w(f"  you avoid uploading  {100 * (junk_b + dup_b) / tot_b:>11.1f}%   of what is on disk")
+    w("=" * 72)
+
+    if args.upstream_mbit:
+        wire = up_b * 8 / (args.upstream_mbit * 1_000_000)
+        cap = (up_b / DAILY_UPLOAD_BUDGET) * 86400
+        w()
+        w(f"  at {args.upstream_mbit:.0f} Mbit/s: {duration(wire)} of wire time")
+        w(f"  Google's 750GB/day cap: {duration(cap)} minimum")
+        if cap > wire:
+            w(f"  -> you are CAP-bound, not bandwidth-bound. Expect ~{duration(wire)} of")
+            w("     actual transfer per day, then a wait for the window to roll.")
+        else:
+            w("  -> you are bandwidth-bound.")
+
+    if args.out:
+        Path(args.out).write_text("\n".join(out) + "\n", encoding="utf-8")
+        say(f"\nwritten to {args.out}")
+    return 0
+
+
+def cmd_auto(args) -> int:
+    """Everything, unattended. This is the paste-and-walk-away command."""
+    steps = [
+        ("scan", ["--db", args.db, "scan", *args.root] + (["--reset"] if args.reset else [])),
+        ("classify", ["--db", args.db, "classify", "--reclassify"]),
+        ("dedupe", ["--db", args.db, "dedupe", "--jobs", str(args.jobs)]),
+        ("report", ["--db", args.db, "report", "--upstream-mbit", str(args.upstream_mbit),
+                    "--out", args.out]),
+    ]
+    for label, argv in steps:
+        say("\n" + "=" * 72)
+        say(f"  {label}")
+        say("=" * 72)
+        rc = main(argv)
+        if rc != 0:
+            warn(f"{label} failed with {rc}, stopping")
+            return rc
+
+    if args.report_only:
+        say("\n--report-only: stopping before anything is deleted or uploaded.")
+        say(f"Read {args.out}, then re-run without --report-only.")
+        return 0
+
+    say("\n" + "=" * 72)
+    say("  reclaiming junk (no upload needed)")
+    say("=" * 72)
+    main(["--db", args.db, "reclaim", "--no-dupes", "--no-archived", "--yes"])
+
+    say("\n" + "=" * 72)
+    say("  uploading")
+    say("=" * 72)
+    rc = main(["--db", args.db, "push", "--remote", args.remote, "--stage", args.stage,
+               "--reclaim", "--transfers", str(args.transfers)])
+    main(["--db", args.db, "backup-index", "--remote", args.remote])
+    return rc
 
 
 # --------------------------------------------------------------------------- #
@@ -723,10 +885,10 @@ def build_bundle(db, stage: Path, remote_prefix: str, compress: str) -> dict | N
     return {"name": name, "path": out, "manifest": manifest, "bytes": size_on_disk}
 
 
-def upload_file(local: Path, remote: str, dry: bool) -> tuple:
+def upload_file(local: Path, remote: str, dry: bool, tuning: list | None = None) -> tuple:
     if dry:
         return True, "dry-run"
-    args = ["copyto", str(local), remote, *RCLONE_TUNING]
+    args = ["copyto", str(local), remote, *(tuning if tuning is not None else rclone_tuning())]
     r = rclone(args, capture=True, timeout=None)
     if r.returncode == 0:
         return True, ""
@@ -751,6 +913,7 @@ def cmd_push(args) -> int:
         warn("rclone not found on PATH. Run `dr doctor` or bootstrap first.")
         return 2
 
+    tuning = rclone_tuning(args.transfers, args.chunk)
     deadline = time.time() + args.max_hours * 3600 if args.max_hours else None
     moved = 0
 
@@ -779,7 +942,7 @@ def cmd_push(args) -> int:
             rel = relative_remote(db, big["path"])
             remote = f"{remote_prefix}/files/{rel}"
             say(f"up {human(big['size']):>10}  {big['path']}")
-            ok, err = upload_file(Path(big["path"]), remote, args.dry_run)
+            ok, err = upload_file(Path(big["path"]), remote, args.dry_run, tuning)
             if ok:
                 db.execute("UPDATE entries SET uploaded_at=?, remote=? WHERE id=?",
                            (time.time(), remote, big["id"]))
@@ -827,7 +990,7 @@ def cmd_push(args) -> int:
             continue
 
         say(f"up {human(pending['bytes']):>10}  {pending['name']}")
-        ok, err = upload_file(Path(pending["stage_path"]), pending["remote"], args.dry_run)
+        ok, err = upload_file(Path(pending["stage_path"]), pending["remote"], args.dry_run, tuning)
         if not ok:
             if is_quota_error(err):
                 say("\nGoogle says: daily upload limit. Pausing.")
@@ -844,7 +1007,7 @@ def cmd_push(args) -> int:
         # manifest rides along so the index survives a wipe
         mpath = Path(pending["stage_path"] + ".manifest.jsonl")
         if mpath.exists():
-            upload_file(mpath, f"{remote_prefix}/manifests/{mpath.name}", args.dry_run)
+            upload_file(mpath, f"{remote_prefix}/manifests/{mpath.name}", args.dry_run, tuning)
 
         db.execute("UPDATE bundles SET state='uploaded', uploaded_at=? WHERE name=?",
                    (time.time(), pending["name"]))
@@ -1246,7 +1409,27 @@ def main(argv=None) -> int:
 
     s = sub.add_parser("dedupe", help="find byte-identical duplicates")
     s.add_argument("--min-size", type=int, default=1 * MiB)
+    s.add_argument("--jobs", type=int, default=12,
+                   help="hashing threads. 12+ on SSD/NVMe, 2 on a spinning disk")
     s.set_defaults(fn=cmd_dedupe)
+
+    s = sub.add_parser("report", help="the fact sheet: real data vs copies vs junk")
+    s.add_argument("--upstream-mbit", type=float, default=0)
+    s.add_argument("--out", default="", help="also write the report to this file")
+    s.set_defaults(fn=cmd_report)
+
+    s = sub.add_parser("auto", help="scan+classify+dedupe+report+reclaim+upload, unattended")
+    s.add_argument("root", nargs="+")
+    s.add_argument("--remote", default=DEFAULT_REMOTE)
+    s.add_argument("--stage", default=str(HERE / "stage"))
+    s.add_argument("--jobs", type=int, default=12)
+    s.add_argument("--transfers", type=int, default=8)
+    s.add_argument("--upstream-mbit", type=float, default=1000)
+    s.add_argument("--out", default=str(HERE / "report.txt"))
+    s.add_argument("--reset", action="store_true")
+    s.add_argument("--report-only", action="store_true",
+                   help="stop after the report; delete and upload nothing")
+    s.set_defaults(fn=cmd_auto)
 
     s = sub.add_parser("plan", help="show the move before doing it")
     s.add_argument("--upstream-mbit", type=float, default=0,
@@ -1266,6 +1449,10 @@ def main(argv=None) -> int:
     s.add_argument("--keep-stage", action="store_true")
     s.add_argument("--no-wait", action="store_true",
                    help="exit at the daily cap instead of sleeping until it lifts")
+    s.add_argument("--transfers", type=int, default=8,
+                   help="parallel uploads; 8 suits gigabit, drop to 4 on a slow line")
+    s.add_argument("--chunk", default="256M",
+                   help="upload chunk size; RAM cost is chunk x transfers")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(fn=cmd_push)
 
