@@ -52,7 +52,7 @@ You are doing the migration. The rebuild comes after and is a separate job.
 | | |
 |---|---|
 | Source | ~1.5 TB across local drives on this PC. There is an **SSD** plus larger storage. |
-| Destination | Google Drive folder **"Black Mamba - Home-Server-Cloud"** |
+| Destination | Google Drive folder **"Black Mamba-Home-Cloud-Server"** |
 | Folder ID | `1urF86RCzBsnAU31ng70V-7utkahZakOV` |
 | Drive quota | 916 GB used of 5 TB → **4.08 TB free**. 1.5 TB fits. |
 | Connection | 1 Gbit, CAT5e. **Upload speed is unverified — test it first.** |
@@ -117,6 +117,19 @@ default credentials are shared globally and permanently throttled; your own is
 worth 3–5x throughput. Steps in `docs/RCLONE.md`; console at
 <https://console.cloud.google.com/>. The consent screen needs Dano's own address
 added under **Test users** or auth fails.
+
+### Which Google account — check this before authorising
+
+The destination folder is owned by **danrom1988@gmail.com**. rclone must be
+authorised as *that* account, and the OAuth consent screen must list
+**danrom1988@gmail.com** under **Test users**. Authorising a different Google
+account is the most likely way this fails: you either get a permission error on
+first upload, or files land somewhere unexpected and count against the wrong
+quota.
+
+Confirm before starting: the 5 TB of storage (916 GB used) belongs to
+danrom1988@gmail.com, not another account. Google's 750 GB/day cap is also
+per-account.
 
 ### 1. Facts first — deletes and uploads nothing
 ```bash

@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_DB = HERE / "driveshift.db"
 DEFAULT_RULES = HERE / "rules.json"
 
-# "Black Mamba - Home-Server-Cloud" on Google Drive. Targeting the folder by ID
+# "Black Mamba-Home-Cloud-Server" on Google Drive. Targeting the folder by ID
 # rather than by name means renaming or moving it in the web UI breaks nothing.
 DEFAULT_REMOTE = "blackmamba:"
 ROOT_FOLDER_ID = "1urF86RCzBsnAU31ng70V-7utkahZakOV"

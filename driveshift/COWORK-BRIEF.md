@@ -50,7 +50,7 @@ the rebuild is a separate job afterwards.
 | | |
 |---|---|
 | Source | ~1.5 TB across local drives on this PC. There is an **SSD** plus larger storage. |
-| Destination | Google Drive folder **"Black Mamba - Home-Server-Cloud"** |
+| Destination | Google Drive folder **"Black Mamba-Home-Cloud-Server"** |
 | Folder ID | `1urF86RCzBsnAU31ng70V-7utkahZakOV` |
 | Drive quota | 916 GB used of 5 TB → **4.08 TB free**. 1.5 TB fits. |
 | Connection | 1 Gbit, CAT5e. **Upload speed unverified — measure it first.** |
@@ -126,6 +126,19 @@ limits per client ID. Your own is **3–5x faster** on a bulk move. Ten minutes:
    `rclone config reconnect blackmamba:` renews it.)
 4. **Credentials → Create credentials → OAuth client ID → Desktop app.** Copy the
    client ID and client secret.
+
+### Which Google account — check this before authorising
+
+The destination folder is owned by **danrom1988@gmail.com**. rclone must be
+authorised as *that* account, and the OAuth consent screen must list
+**danrom1988@gmail.com** under **Test users**. Authorising a different Google
+account is the most likely way this fails: you either get a permission error on
+first upload, or files land somewhere unexpected and count against the wrong
+quota.
+
+Confirm before starting: the 5 TB of storage (916 GB used) belongs to
+danrom1988@gmail.com, not another account. Google's 750 GB/day cap is also
+per-account.
 
 ### Configure the remote
 
@@ -368,7 +381,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_DB = HERE / "driveshift.db"
 DEFAULT_RULES = HERE / "rules.json"
 
-# "Black Mamba - Home-Server-Cloud" on Google Drive. Targeting the folder by ID
+# "Black Mamba-Home-Cloud-Server" on Google Drive. Targeting the folder by ID
 # rather than by name means renaming or moving it in the web UI breaks nothing.
 DEFAULT_REMOTE = "blackmamba:"
 ROOT_FOLDER_ID = "1urF86RCzBsnAU31ng70V-7utkahZakOV"
@@ -2073,7 +2086,7 @@ Write this verbatim to `rules.json`, beside `dr.py`.
       "tier": "SKIP",
       "_why": "Never re-upload the staging/mirror of Black Mamba itself.",
       "glob": ["*/google drive/*", "*/googledrive/*", "*/my drive/*",
-               "*/black mamba - home-server-cloud/*"] },
+               "*/black mamba*/*"] },
 
     { "name": "windows-pagefiles",
       "tier": "SKIP",

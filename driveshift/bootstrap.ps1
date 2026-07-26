@@ -4,7 +4,7 @@
       powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
 
   Installs rclone, authorises Google Drive, and pins the remote to the
-  "Black Mamba - Home-Server-Cloud" folder by ID.
+  "Black Mamba-Home-Cloud-Server" folder by ID.
 #>
 
 $ErrorActionPreference = 'Stop'

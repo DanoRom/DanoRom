@@ -4,7 +4,7 @@
 #   bash bootstrap.sh
 #
 # Installs rclone, walks you through authorising Google Drive, and pins the
-# remote to the "Black Mamba - Home-Server-Cloud" folder by ID.
+# remote to the "Black Mamba-Home-Cloud-Server" folder by ID.
 
 set -euo pipefail
 

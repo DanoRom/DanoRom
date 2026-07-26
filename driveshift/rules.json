@@ -48,7 +48,7 @@
       "tier": "SKIP",
       "_why": "Never re-upload the staging/mirror of Black Mamba itself.",
       "glob": ["*/google drive/*", "*/googledrive/*", "*/my drive/*",
-               "*/black mamba - home-server-cloud/*"] },
+               "*/black mamba*/*"] },
 
     { "name": "windows-pagefiles",
       "tier": "SKIP",
